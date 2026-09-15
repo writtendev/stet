@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dco:
+    name: DCO
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for Signed-off-by
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          commits=$(git rev-list --no-merges "$merge_base..$HEAD_SHA")
+          missing=0
+          for sha in $commits; do
+            author_email=$(git log -1 --format='%ae' "$sha")
+            if ! git log -1 --format='%B' "$sha" | grep -E -qi '^Signed-off-by: .+ <.+>$'; then
+              echo "::error::commit $sha has no Signed-off-by trailer (see AGENTS.md)"
+              missing=1
+            elif ! git log -1 --format='%B' "$sha" | grep -i '^Signed-off-by:' | grep -i -q -F "<$author_email>"; then
+              echo "::error::commit $sha Signed-off-by trailer does not match author email <$author_email> (see AGENTS.md)"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/bin/golangci-lint
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: golangci-lint-goinstall-v1.64.8-${{ runner.os }}
+
+      - name: Install golangci-lint
+        run: |
+          if ! command -v golangci-lint >/dev/null 2>&1; then
+            go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          fi
+
+      - name: Run check command
+        run: make build test lint
