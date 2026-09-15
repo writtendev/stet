@@ -31,15 +31,15 @@ var (
 	// Status styles.
 	SuccessStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#15803d", Dark: "#4ade80"})
+			Foreground(lipgloss.AdaptiveColor{Light: "#404040", Dark: "#d4d4d4"})
 
 	WarnStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#b45309", Dark: "#fbbf24"})
+			Foreground(lipgloss.AdaptiveColor{Light: "#404040", Dark: "#d4d4d4"})
 
 	ErrorStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#b91c1c", Dark: "#f87171"})
+			Foreground(lipgloss.AdaptiveColor{Light: "#404040", Dark: "#d4d4d4"})
 
 	// Frame and block styles.
 	HeaderStyle = lipgloss.NewStyle().
