@@ -53,9 +53,19 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/bin/golangci-lint
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: golangci-lint-goinstall-v1.64.8-${{ runner.os }}
+
       - name: Install golangci-lint
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.64.8 || go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          if ! command -v golangci-lint >/dev/null 2>&1; then
+            go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          fi
 
       - name: Run check command
         run: make build test lint
