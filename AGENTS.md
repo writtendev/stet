@@ -22,7 +22,7 @@ the skills are required to stop and say which one is missing rather than
 guess.
 
 - **Linear team key**: `STET` (ticket ids are `STET-<n>`)
-- **Check command**: `make check`
+- **Check command**: `make build test lint`
 - **Base branch**: `main`
 - **Worktrees**: `.claude/worktrees/` — one worktree per ticket, named for it
 - **Run manifest**: `.claude/worktrees/dispatch-manifest.md`

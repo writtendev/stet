@@ -27,10 +27,13 @@ It records and verifies physical presence assertions over content hashes using
 hardware security keys, backed by append-only git state.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:        version.Version,
 	}
 
 	root.PersistentFlags().BoolVar(&globals.json, "json", false, "Emit machine-readable JSON output")
 	root.PersistentFlags().BoolVarP(&globals.verbose, "verbose", "v", false, "Enable verbose logging")
+
+	root.SetVersionTemplate("stet version {{.Version}}\n")
 
 	root.AddCommand(
 		newSignCmd(),
@@ -38,6 +41,12 @@ hardware security keys, backed by append-only git state.`,
 		newAuditCmd(),
 		newVersionCmd(),
 	)
+
+	for _, cmd := range root.Commands() {
+		if cmd.Version == "" {
+			cmd.Version = version.Version
+		}
+	}
 
 	return root
 }

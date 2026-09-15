@@ -60,6 +60,28 @@ func TestVersionCmd(t *testing.T) {
 			t.Errorf("expected version field in json, got: %+v", payload)
 		}
 	})
+
+	t.Run("root --version flag", func(t *testing.T) {
+		out, err := executeCommand("--version")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "stet") {
+			t.Errorf("expected --version output to contain 'stet', got: %s", out)
+		}
+	})
+
+	for _, sub := range []string{"sign", "verify", "audit"} {
+		t.Run(sub+" --version flag", func(t *testing.T) {
+			out, err := executeCommand(sub, "--version")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !strings.Contains(out, "version") && !strings.Contains(out, "stet") {
+				t.Errorf("expected %s --version output to contain 'stet' or 'version', got: %s", sub, out)
+			}
+		})
+	}
 }
 
 func TestSignCmd(t *testing.T) {
