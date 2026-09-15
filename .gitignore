@@ -1,0 +1,20 @@
+# Workspace & Dispatch
+.agents/skills/
+.claude/worktrees/
+.claude/settings.local.json
+
+# Binaries & build artifacts
+/bin/
+/stet
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Test coverage & tooling caches
+coverage.txt
+profile.out
+.DS_Store
