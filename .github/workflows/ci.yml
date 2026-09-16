@@ -67,5 +67,37 @@ jobs:
             go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
           fi
 
+      - name: Install libfido2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfido2-dev pkg-config
+
       - name: Run check command
-        run: make build test lint
+        run: make build test lint FIDO2=1
+
+  check-stub:
+    name: Check (no libfido2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/bin/golangci-lint
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: golangci-lint-goinstall-v1.64.8-${{ runner.os }}
+
+      - name: Install golangci-lint
+        run: |
+          if ! command -v golangci-lint >/dev/null 2>&1; then
+            go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          fi
+
+      - name: Run check command
+        run: make build test lint FIDO2=0
