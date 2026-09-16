@@ -15,15 +15,20 @@
 // the headline, whether because it has no approval at all, only
 // disqualified approvals (bot, self), or only stale ones.
 //
-// Limitation: GitHub's minimal PR review payload used here does not carry
-// per-commit co-author data, so "co-author" exclusion (mentioned in the
-// ticket's plan) is not implemented; only PR-author exclusion is checked.
-// This is flagged as a known gap rather than silently assumed.
+// A qualifying reviewer additionally excludes co-authors: anyone who
+// authored a commit on the PR's branch, fetched via each commit's GitHub
+// authors, cannot satisfy meaningful review by approving their own
+// contribution.
 //
 // Headline: (merged PRs lacking meaningful review, plus direct pushes —
 // first-parent commits on the default branch not associated with any
-// merged PR's merge commit) divided by (merged PRs + direct pushes), over
-// the report's window.
+// merged PR's commits) divided by (merged PRs + direct pushes), over
+// the report's window. A PR contributes every first-parent commit up to
+// its total commit count, ending at the commit GitHub reports as its
+// merge commit, so a rebase-merged PR's other landed commits are not
+// miscounted as direct pushes. A PR dropped by --limit or by the
+// GraphQL pagination window cannot be associated this way, and its
+// commits are counted as direct pushes.
 //
 // Self-merge: a PR whose MergedByLogin equals its AuthorLogin,
 // case-insensitively.
@@ -42,14 +47,17 @@
 //
 // Approval latency: for a PR with meaningful review, the time from the
 // PR's CreatedAt (or ReadyForReviewAt when GitHub reports one) to the
-// qualifying approval that satisfies "meaningful human review", bucketed
-// into <5m, 5m-1h, 1h-24h, 1d-7d, >7d. A PR without meaningful review
-// buckets into "none".
+// *first* qualifying approval, bucketed into <5m, 5m-1h, 1h-24h, 1d-7d,
+// >7d -- distinct from the *latest* qualifying approval, which is what
+// decides whether the PR has meaningful review at all (it must cover the
+// code that actually merged). A PR without meaningful review buckets
+// into "none".
 //
-// Bot/agent commit: a commit whose author name/email matches a "[bot]"
-// suffix, a GitHub Bot account type, or one of the fixed agent names in
-// classify.go (via author name or a Co-authored-by trailer). Reported as
-// a share of commits per calendar month (UTC) over the window.
+// Bot/agent commit: a commit whose author or committer name/email
+// matches a "[bot]" suffix, a GitHub Bot account type, or one of the
+// fixed agent identities in classify.go (via name, email, login, or a
+// Co-authored-by trailer, matched case-insensitively). Reported as a
+// share of commits per calendar month (UTC) over the window.
 //
 // Signature coverage: the share of first-parent default-branch commits
 // whose `git log --pretty=%G?` is not "N" (i.e. carries some signature,

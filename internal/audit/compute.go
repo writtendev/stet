@@ -83,7 +83,7 @@ func botAgentShareByMonth(commits []gitlocal.Commit, since time.Time) []MonthSha
 			order = append(order, key)
 		}
 		a.total++
-		if IsBotOrAgentCommit(c.AuthorName, c.AuthorEmail, c.Trailers) {
+		if IsBotOrAgentCommit(c.AuthorName, c.AuthorEmail, c.CommitterName, c.CommitterEmail, c.Trailers) {
 			a.bot++
 		}
 	}
@@ -112,7 +112,14 @@ type prAnalysis struct {
 }
 
 func analyzePR(pr github.PR) prAnalysis {
-	var latestApproval, latestQualifying *github.Review
+	// latestApproval tracks any APPROVED review (qualifying or not) for
+	// the predates-final-commit check. earliestQualifying/latestQualifying
+	// track only qualifying approvals: the earliest sets the approval
+	// latency (time to first qualifying approval, per the brief),
+	// separately from the latest, which decides whether the PR has
+	// meaningful review at all (it must cover the code that actually
+	// merged).
+	var latestApproval, earliestQualifying, latestQualifying *github.Review
 
 	for i := range pr.Reviews {
 		rv := &pr.Reviews[i]
@@ -123,6 +130,9 @@ func analyzePR(pr github.PR) prAnalysis {
 			latestApproval = rv
 		}
 		if isQualifyingApprover(*rv, pr) {
+			if earliestQualifying == nil || rv.SubmittedAt.Before(earliestQualifying.SubmittedAt) {
+				earliestQualifying = rv
+			}
 			if latestQualifying == nil || rv.SubmittedAt.After(latestQualifying.SubmittedAt) {
 				latestQualifying = rv
 			}
@@ -144,7 +154,7 @@ func analyzePR(pr github.PR) prAnalysis {
 		if pr.ReadyForReviewAt != nil {
 			start = *pr.ReadyForReviewAt
 		}
-		a.latencyBucket = bucketFor(latestQualifying.SubmittedAt.Sub(start))
+		a.latencyBucket = bucketFor(earliestQualifying.SubmittedAt.Sub(start))
 	} else {
 		a.latencyBucket = "none"
 	}
@@ -152,11 +162,23 @@ func analyzePR(pr github.PR) prAnalysis {
 	return a
 }
 
+// isQualifyingApprover reports whether rv is an independent reviewer of
+// pr: not a bot/agent, not pr's own author, and not one of the people who
+// authored a commit on pr's branch (a co-author approving their own
+// contribution is not independent review either).
 func isQualifyingApprover(rv github.Review, pr github.PR) bool {
 	if IsBotOrAgentLogin(rv.AuthorLogin, rv.AuthorIsBot) {
 		return false
 	}
-	return !strings.EqualFold(rv.AuthorLogin, pr.AuthorLogin)
+	if strings.EqualFold(rv.AuthorLogin, pr.AuthorLogin) {
+		return false
+	}
+	for _, login := range pr.CommitAuthorLogins {
+		if strings.EqualFold(rv.AuthorLogin, login) {
+			return false
+		}
+	}
+	return true
 }
 
 func hasSelfApproval(pr github.PR) bool {
@@ -183,20 +205,59 @@ func bucketFor(d time.Duration) string {
 	}
 }
 
-func buildGitHubTier(report *Report, in Input) {
-	mergeCommits := make(map[string]bool, len(in.PRs))
-	for _, pr := range in.PRs {
-		if pr.MergeCommitSHA != "" {
-			mergeCommits[pr.MergeCommitSHA] = true
+// countDirectPushes counts first-parent default-branch commits not
+// associated with any fetched merged PR. A PR contributes its own commit
+// count (TotalCommits) worth of first-parent commits ending at its
+// MergeCommitSHA: for squash and merge-commit strategies that is just the
+// one landed commit, but for a rebase merge GitHub lands every rebased
+// commit as its own first-parent commit and only the last one is
+// reported as MergeCommitSHA, so counting just that single SHA would
+// wrongly count the other rebased commits as direct pushes. Any
+// first-parent commit that is not associated with a PR this way is a
+// direct push, including a true merge commit pushed straight to the
+// branch (e.g. a local `git merge && git push`) -- unlike a bare
+// !IsMerge() check, this does not exempt merge commits just because they
+// have two parents.
+//
+// A PR whose merge commit falls outside in.Commits (dropped by --limit,
+// or by the GraphQL pagination window) cannot be associated and its
+// commits are counted as direct pushes; widen --limit or --months to
+// avoid this.
+func countDirectPushes(commits []gitlocal.Commit, prs []github.PR) int {
+	indexBySHA := make(map[string]int, len(commits))
+	for i, c := range commits {
+		indexBySHA[c.SHA] = i
+	}
+
+	associated := make(map[string]bool, len(commits))
+	for _, pr := range prs {
+		if pr.MergeCommitSHA == "" {
+			continue
+		}
+		idx, ok := indexBySHA[pr.MergeCommitSHA]
+		if !ok {
+			continue
+		}
+		n := pr.TotalCommits
+		if n < 1 {
+			n = 1
+		}
+		for i := idx; i < len(commits) && i < idx+n; i++ {
+			associated[commits[i].SHA] = true
 		}
 	}
 
 	directPushes := 0
-	for _, c := range in.Commits {
-		if !c.IsMerge() && !mergeCommits[c.SHA] {
+	for _, c := range commits {
+		if !associated[c.SHA] {
 			directPushes++
 		}
 	}
+	return directPushes
+}
+
+func buildGitHubTier(report *Report, in Input) {
+	directPushes := countDirectPushes(in.Commits, in.PRs)
 
 	buckets := map[string]int{}
 	for _, b := range BucketOrder {

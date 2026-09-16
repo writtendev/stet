@@ -159,6 +159,90 @@ func TestAnalyzePRSelfMerged(t *testing.T) {
 	}
 }
 
+func TestAnalyzePRLatencyUsesFirstQualifyingApproval(t *testing.T) {
+	pr := basePR(20)
+	pr.MergedByLogin = "reviewer"
+	// Approved 2 minutes after opening (2025-06-01T00:02), then a
+	// follow-up push moves FinalCommitAt later, and the same reviewer
+	// re-approves 3 days after opening. meaningfulReview must key off the
+	// latest (it covers the final commit); the latency bucket must key
+	// off the earliest, not the latest.
+	pr.FinalCommitAt = pr.CreatedAt.Add(2 * 24 * time.Hour)
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: pr.CreatedAt.Add(2 * time.Minute)},
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: pr.CreatedAt.Add(3 * 24 * time.Hour)},
+	}
+	a := analyzePR(pr)
+	if !a.meaningfulReview {
+		t.Fatal("expected the later approval (which covers the final commit) to count as meaningful")
+	}
+	if a.latencyBucket != "<5m" {
+		t.Errorf("expected latency bucketed from the first qualifying approval (<5m), got %q", a.latencyBucket)
+	}
+}
+
+func TestAnalyzePRCoAuthorApprovalDoesNotCount(t *testing.T) {
+	pr := basePR(21)
+	pr.MergedByLogin = "someone-else"
+	pr.CommitAuthorLogins = []string{"author", "co-author"}
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "co-author", State: "APPROVED", SubmittedAt: pr.FinalCommitAt.Add(time.Minute)},
+	}
+	a := analyzePR(pr)
+	if a.meaningfulReview {
+		t.Error("an approval from a co-author who pushed commits to the branch must not count as independent review")
+	}
+}
+
+func TestAnalyzePRNonCoAuthorApprovalCounts(t *testing.T) {
+	pr := basePR(22)
+	pr.MergedByLogin = "reviewer"
+	pr.CommitAuthorLogins = []string{"author", "co-author"}
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: pr.FinalCommitAt.Add(time.Minute)},
+	}
+	a := analyzePR(pr)
+	if !a.meaningfulReview {
+		t.Error("an approval from someone who did not author any commit on the branch should count")
+	}
+}
+
+func TestCountDirectPushesAssociatesRebaseMergedCommits(t *testing.T) {
+	pr := basePR(30)
+	pr.MergeCommitSHA = "r3"
+	pr.TotalCommits = 3
+
+	// Newest-first, as gitlocal.FirstParentLog returns them: r3 is the
+	// commit GitHub reports as MergeCommitSHA (the last rebased commit);
+	// r2 and r1 are the other two commits from the same rebase-merged PR
+	// and must not be counted as direct pushes even though only r3's SHA
+	// is known to GitHub as belonging to this PR.
+	commits := []gitlocal.Commit{
+		{SHA: "r3", CommittedAt: t0("2025-06-03T00:00:00Z")},
+		{SHA: "r2", CommittedAt: t0("2025-06-02T12:00:00Z")},
+		{SHA: "r1", CommittedAt: t0("2025-06-02T00:00:00Z")},
+		{SHA: "direct1", CommittedAt: t0("2025-06-01T00:00:00Z")},
+	}
+
+	n := countDirectPushes(commits, []github.PR{pr})
+	if n != 1 {
+		t.Errorf("expected only the 1 true direct push, got %d", n)
+	}
+}
+
+func TestCountDirectPushesCountsUnassociatedMergeCommit(t *testing.T) {
+	// A real merge commit pushed straight to the branch (not any fetched
+	// PR's merge commit) must count as a direct push, not be exempted
+	// just because it has two parents.
+	commits := []gitlocal.Commit{
+		{SHA: "localmerge", Parents: []string{"p1", "p2"}, CommittedAt: t0("2025-06-01T00:00:00Z")},
+	}
+	n := countDirectPushes(commits, nil)
+	if n != 1 {
+		t.Errorf("expected an unassociated merge commit to count as a direct push, got %d", n)
+	}
+}
+
 func TestBuildGitHubTierHeadlineAndFindings(t *testing.T) {
 	now := t0("2025-07-01T00:00:00Z")
 
