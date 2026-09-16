@@ -12,11 +12,15 @@ type fakeEnv map[string]string
 func (f fakeEnv) Getenv(key string) string { return f[key] }
 
 type fakeRunner struct {
-	out string
-	err error
+	out   string
+	err   error
+	calls *[][]string
 }
 
 func (f fakeRunner) Output(ctx context.Context, name string, args ...string) (string, error) {
+	if f.calls != nil {
+		*f.calls = append(*f.calls, args)
+	}
 	return f.out, f.err
 }
 
@@ -89,6 +93,28 @@ func TestResolveTokenOrder(t *testing.T) {
 		_, _, err := ResolveToken(context.Background(), env, fakeRunner{err: errors.New("no gh")}, nil, true)
 		if err != nil && strings.Contains(err.Error(), "ghp_") {
 			t.Errorf("error message leaked a token-shaped value: %v", err)
+		}
+	})
+
+	t.Run("gh CLI invocation pins --hostname github.com", func(t *testing.T) {
+		var calls [][]string
+		env := fakeEnv{}
+		_, _, err := ResolveToken(context.Background(), env, fakeRunner{out: "ghcli-token", calls: &calls}, nil, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(calls) != 1 {
+			t.Fatalf("expected exactly one runner invocation, got %d: %v", len(calls), calls)
+		}
+		got := calls[0]
+		want := []string{"auth", "token", "--hostname", "github.com"}
+		if len(got) != len(want) {
+			t.Fatalf("got args %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("got args %v, want %v", got, want)
+			}
 		}
 	})
 }

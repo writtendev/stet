@@ -62,7 +62,7 @@ func ResolveToken(ctx context.Context, env Env, runner Runner, flow DeviceFlow, 
 		return tok, SourceEnvGitHubToken, nil
 	}
 	if runner != nil {
-		if out, err := runner.Output(ctx, "gh", "auth", "token"); err == nil {
+		if out, err := runner.Output(ctx, "gh", "auth", "token", "--hostname", "github.com"); err == nil {
 			if tok := strings.TrimSpace(out); tok != "" {
 				return tok, SourceGHCLI, nil
 			}
