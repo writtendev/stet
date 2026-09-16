@@ -49,14 +49,20 @@
 // an unterminated fragment that does not parse gets truncated away back
 // to the offset where it begins (removing only bytes that were never
 // part of a committed record). If a write itself then fails partway
-// through, the file is truncated back to its size from just before that
-// write. None of this is a rewrite: every byte removed by a truncation
-// was, by the commit rule above, never part of a committed record in the
-// first place, and every byte added is a terminator for a record that
-// was already committed. No committed record is ever removed or
-// rewritten — that is what "append-only" means here. There is still no
-// delete or rewrite API for a committed record; a mistaken add is
-// corrected by revoking it, never by editing the file.
+// through, what happens to the bytes it landed follows the same commit
+// rule, not the byte count the failed Write call reported: if what
+// landed (with, at most, its trailing '\n' missing) already parses as a
+// complete record, it is completed with the missing terminator and the
+// call reports success, because a concurrent Load could already observe
+// it as committed; only a landed prefix that does not parse -- a
+// genuine fragment -- is truncated back to the file's size from just
+// before that write. None of this is a rewrite: every byte removed by a
+// truncation was, by the commit rule above, never part of a committed
+// record in the first place, and every byte added is a terminator for a
+// record that was already committed. No committed record is ever
+// removed or rewritten -- that is what "append-only" means here. There
+// is still no delete or rewrite API for a committed record; a mistaken
+// add is corrected by revoking it, never by editing the file.
 //
 // Entries do not carry a hardware attestation trust class (e.g. "YubiKey
 // series 5" vs "unknown"); that classification is STET-6's decision, made
@@ -419,15 +425,29 @@ func (l *Log) truncateLocked(size int64) error {
 }
 
 // appendLocked marshals and writes rec, fsyncing before it returns. If
-// the write itself fails partway through — leaving some prefix of rec's
-// bytes on disk — appendLocked truncates the file back to the size it
-// had immediately before this call, undoing only the bytes this call
-// itself just wrote. That is never a rewrite: those bytes were never
-// part of a committed record (the caller never saw this call succeed),
-// so removing them doesn't touch anything Load, or a concurrent reload,
-// could have already read back as committed. Callers must hold l.mu and
-// the flock, and must have just called reloadLocked so the file's tail
-// is a clean boundary to append onto.
+// the write itself fails partway through, what happens to the bytes it
+// did land depends on whether they already form a committed record by
+// the commit rule (see the package doc): a write that lands everything
+// except (at most) the trailing '\n' has already produced a complete,
+// parseable record -- indistinguishable from a hand-appended record
+// missing its terminator, which Load and reloadLocked both already
+// treat as committed. Truncating that away would delete a record a
+// concurrent Load could already have observed (e.g. a revoke, silently
+// reverting a key from revoked back to active). So appendLocked inspects
+// what actually landed on disk, not the byte count Write reported:
+//
+//   - if it parses as a complete record, the record is committed; the
+//     missing terminator (if any) is supplied and fsynced, and this
+//     reports success (nil) rather than the write error, so a caller
+//     never sees an error for a record that is, in fact, on disk and
+//     loadable;
+//   - otherwise it is an uncommitted fragment, and the file is
+//     truncated back to the size it had immediately before this call,
+//     undoing only bytes that were never part of a committed record
+//     (the caller never saw this call succeed on that fragment).
+//
+// Callers must hold l.mu and the flock, and must have just called
+// reloadLocked so the file's tail is a clean boundary to append onto.
 func (l *Log) appendLocked(rec any) error {
 	b, err := json.Marshal(rec)
 	if err != nil {
@@ -440,16 +460,54 @@ func (l *Log) appendLocked(rec any) error {
 		return fmt.Errorf("trust: seek %s: %w", l.path, err)
 	}
 
-	if _, err := l.w.Write(b); err != nil {
-		if terr := l.truncateLocked(preWriteSize); terr != nil {
-			return fmt.Errorf("trust: write record: %w (additionally failed to undo the partial write: %v)", err, terr)
-		}
-		return fmt.Errorf("trust: write record: %w", err)
+	if _, werr := l.w.Write(b); werr != nil {
+		return l.recoverFailedWriteLocked(preWriteSize, werr)
 	}
 	if err := l.w.Sync(); err != nil {
 		return fmt.Errorf("trust: sync record: %w", err)
 	}
 	return nil
+}
+
+// recoverFailedWriteLocked is called after appendLocked's Write reports
+// an error. It reads back whatever actually landed on disk after
+// preWriteSize (the file's size immediately before that Write) -- not
+// the byte count Write returned -- since only bytes actually on disk can
+// be observed by a concurrent Load.
+//
+// If that tail, with at most a missing trailing '\n', already parses as
+// a complete record, the commit rule (see the package doc) already
+// counts it as committed: this supplies the missing terminator and
+// fsyncs, then returns nil, reporting the append as successful rather
+// than surfacing writeErr for a record that is in fact on disk. If the
+// tail does not parse, it is an uncommitted fragment: this truncates the
+// file back to preWriteSize and returns writeErr. Callers must hold l.mu
+// and the flock.
+func (l *Log) recoverFailedWriteLocked(preWriteSize int64, writeErr error) error {
+	if _, err := l.f.Seek(preWriteSize, io.SeekStart); err != nil {
+		return fmt.Errorf("trust: write record: %w (additionally failed to inspect the partial write: %v)", writeErr, err)
+	}
+	tail, err := io.ReadAll(l.f)
+	if err != nil {
+		return fmt.Errorf("trust: write record: %w (additionally failed to inspect the partial write: %v)", writeErr, err)
+	}
+
+	if trimmed := bytes.TrimSuffix(tail, []byte("\n")); len(trimmed) > 0 && json.Valid(trimmed) {
+		// Everything but, at most, the trailing newline landed: already
+		// a committed record by the commit rule. Complete it rather
+		// than discarding it.
+		if !bytes.HasSuffix(tail, []byte("\n")) {
+			if err := l.terminateLocked(); err != nil {
+				return fmt.Errorf("trust: write record: %w (record landed on disk but failed to terminate it: %v)", writeErr, err)
+			}
+		}
+		return nil
+	}
+
+	if terr := l.truncateLocked(preWriteSize); terr != nil {
+		return fmt.Errorf("trust: write record: %w (additionally failed to undo the partial write: %v)", writeErr, terr)
+	}
+	return fmt.Errorf("trust: write record: %w", writeErr)
 }
 
 // storedKey is a Key plus its current trust state.

@@ -807,3 +807,73 @@ func TestAppendUndoesPartialWrite(t *testing.T) {
 		t.Errorf("retried second record: state = %v, want StateActive", state)
 	}
 }
+
+// flakyWriteAllButNewline wraps an *os.File and, on its next Write
+// call, physically writes every byte except the record's trailing '\n'
+// to the underlying file before returning an error -- unlike
+// flakyWrite's cut-in-half fragment, the record's own bytes are already
+// complete, valid JSON; only the terminator never landed. It fires at
+// most once.
+type flakyWriteAllButNewline struct {
+	*os.File
+	failWriteOnce bool
+}
+
+func (w *flakyWriteAllButNewline) Write(p []byte) (int, error) {
+	if w.failWriteOnce {
+		w.failWriteOnce = false
+		n := len(p) - 1
+		if _, err := w.File.Write(p[:n]); err != nil {
+			return 0, err
+		}
+		return n, errors.New("simulated short write (newline never landed)")
+	}
+	return w.File.Write(p)
+}
+
+// TestAppendCommitsRecordWhenOnlyNewlineIsShort covers the round-4
+// review finding: a short write that lands every byte of a record
+// except its trailing '\n' has, by the commit rule (see the package
+// doc), already produced a committed record -- a concurrent Load can
+// see it mid-call, before appendLocked even returns. appendLocked must
+// not truncate that record away just because the Write call that
+// produced it reported an error, since doing so would delete a record
+// that was already observably committed (here, silently reverting a
+// revoke back to active). It must instead recognize the parseable tail,
+// supply the missing terminator, and report the append as successful.
+func TestAppendCommitsRecordWhenOnlyNewlineIsShort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
+
+	log, err := Open(path, WithClock(fixedClock(time.Now())))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = log.Close() }()
+
+	entry := testEntry(t, "penny")
+	if err := log.Add(entry); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	log.w = &flakyWriteAllButNewline{File: log.f}
+	if err := log.Revoke(entry.CredentialID, "lost device"); err != nil {
+		t.Fatalf("Revoke: %v, want the all-but-newline short write to still be reported committed, not an error", err)
+	}
+	log.w = log.f
+
+	on, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if len(on) == 0 || on[len(on)-1] != '\n' {
+		t.Fatalf("file after the recovered write does not end in a newline: %q", on)
+	}
+
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v, want the log to remain valid", err)
+	}
+	if _, state := set.Lookup(entry.CredentialID); state != StateRevoked {
+		t.Errorf("state = %v, want StateRevoked (a committed record must never be lost to a truncation)", state)
+	}
+}
