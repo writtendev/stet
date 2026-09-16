@@ -182,6 +182,28 @@ func TestAnalyzePRLatencyUsesFirstQualifyingApproval(t *testing.T) {
 	}
 }
 
+func TestAnalyzePRLatencyMeasuredFromReadyForReviewNotCreatedAt(t *testing.T) {
+	pr := basePR(23)
+	pr.MergedByLogin = "reviewer"
+	// Opened as a draft, sits for 3 days, then marked ready and approved 2
+	// minutes later. The brief measures latency from CreatedAt or (when
+	// present) ReadyForReviewAt, so this must bucket as <5m, not the
+	// 1d-7d it would land in if ReadyForReviewAt were ignored.
+	ready := pr.CreatedAt.Add(3 * 24 * time.Hour)
+	pr.ReadyForReviewAt = &ready
+	pr.FinalCommitAt = ready
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: ready.Add(2 * time.Minute)},
+	}
+	a := analyzePR(pr)
+	if !a.meaningfulReview {
+		t.Fatal("expected meaningful review")
+	}
+	if a.latencyBucket != "<5m" {
+		t.Errorf("expected latency bucketed from ReadyForReviewAt (<5m), got %q", a.latencyBucket)
+	}
+}
+
 func TestAnalyzePRCoAuthorApprovalDoesNotCount(t *testing.T) {
 	pr := basePR(21)
 	pr.MergedByLogin = "someone-else"

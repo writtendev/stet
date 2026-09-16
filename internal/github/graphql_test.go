@@ -186,6 +186,59 @@ func TestGraphQLMergedPRsReviewsQueryFetchesOnlyLatestApproved(t *testing.T) {
 	}
 }
 
+func TestGraphQLMergedPRsPopulatesReadyForReviewAt(t *testing.T) {
+	page := loadFixture(t, "merged_prs_draft_then_ready.json")
+	server, _ := pagedServer(t, []string{page})
+	defer server.Close()
+
+	client := &GraphQLClient{Token: "tok", BaseURL: server.URL, HTTPClient: server.Client()}
+
+	// PR #60 was opened as a draft on 2025-06-01, marked ready on
+	// 2025-06-04, and approved 2 minutes later. The brief measures review
+	// latency from CreatedAt or ReadyForReviewAt when GitHub reports one,
+	// so ReadyForReviewAt must be populated from the
+	// READY_FOR_REVIEW_EVENT timeline item, not left nil (which would
+	// silently fall back to CreatedAt and skew the latency long).
+	prs, err := client.MergedPRs(context.Background(), "writtendev", "stet", "main", time.Time{}, 100)
+	if err != nil {
+		t.Fatalf("MergedPRs: %v", err)
+	}
+	if len(prs) != 1 {
+		t.Fatalf("expected 1 PR, got %d", len(prs))
+	}
+	pr := prs[0]
+	if pr.ReadyForReviewAt == nil {
+		t.Fatal("expected ReadyForReviewAt to be populated from the readyForReview timeline item")
+	}
+	want := time.Date(2025, 6, 4, 0, 0, 0, 0, time.UTC)
+	if !pr.ReadyForReviewAt.Equal(want) {
+		t.Errorf("expected ReadyForReviewAt %v, got %v", want, *pr.ReadyForReviewAt)
+	}
+}
+
+func TestGraphQLMergedPRsQueryFetchesReadyForReviewTimelineItem(t *testing.T) {
+	var capturedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("reading request body: %v", err)
+		}
+		capturedBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, loadFixture(t, "merged_prs_page1.json"))
+	}))
+	defer server.Close()
+
+	client := &GraphQLClient{Token: "tok", BaseURL: server.URL, HTTPClient: server.Client()}
+	if _, err := client.MergedPRs(context.Background(), "writtendev", "stet", "main", time.Time{}, 100); err != nil {
+		t.Fatalf("MergedPRs: %v", err)
+	}
+
+	if !strings.Contains(capturedBody, "READY_FOR_REVIEW_EVENT") {
+		t.Errorf("expected the query to fetch the READY_FOR_REVIEW_EVENT timeline item, got: %s", capturedBody)
+	}
+}
+
 func TestGraphQLRateLimitError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-RateLimit-Remaining", "0")

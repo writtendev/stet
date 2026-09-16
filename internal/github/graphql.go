@@ -73,6 +73,11 @@ query($owner: String!, $repo: String!, $base: String!, $cursor: String) {
         mergedBy { login }
         mergeCommit { oid }
         finalCommit: commits(last: 1) { nodes { commit { committedDate } } }
+        readyForReview: timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT], last: 1) {
+          nodes {
+            ... on ReadyForReviewEvent { createdAt }
+          }
+        }
         commitAuthors: commits(last: 100) {
           totalCount
           nodes {
@@ -124,6 +129,11 @@ type prNode struct {
 			} `json:"commit"`
 		} `json:"nodes"`
 	} `json:"finalCommit"`
+	ReadyForReview struct {
+		Nodes []struct {
+			CreatedAt string `json:"createdAt"`
+		} `json:"nodes"`
+	} `json:"readyForReview"`
 	CommitAuthors struct {
 		TotalCount int `json:"totalCount"`
 		Nodes      []struct {
@@ -258,6 +268,15 @@ func convertPR(node prNode) (PR, error) {
 		}
 	}
 
+	var readyForReviewAt *time.Time
+	if len(node.ReadyForReview.Nodes) > 0 && node.ReadyForReview.Nodes[0].CreatedAt != "" {
+		t, err := parseTime(node.ReadyForReview.Nodes[0].CreatedAt)
+		if err != nil {
+			return PR{}, fmt.Errorf("github: parsing PR #%d ready-for-review createdAt: %w", node.Number, err)
+		}
+		readyForReviewAt = &t
+	}
+
 	reviews := make([]Review, 0, len(node.Reviews.Nodes))
 	for _, rv := range node.Reviews.Nodes {
 		submittedAt, err := parseTime(rv.SubmittedAt)
@@ -299,6 +318,7 @@ func convertPR(node prNode) (PR, error) {
 		MergedByLogin:      node.MergedBy.Login,
 		MergedAt:           mergedAt,
 		CreatedAt:          createdAt,
+		ReadyForReviewAt:   readyForReviewAt,
 		MergeCommitSHA:     node.MergeCommit.OID,
 		TotalCommits:       node.CommitAuthors.TotalCount,
 		Commits:            commits,
