@@ -74,6 +74,19 @@ func TestVerify_MalformedInput(t *testing.T) {
 		"COSE key: duplicate map keys":      {0xA2, 0x01, 0x02, 0x01, 0x03},
 		"COSE key: bare integer, not a map": {0x01},
 		"COSE key: byte string, not a map":  {0x43, 0x01, 0x02, 0x03},
+		// f6 (null) and f7 (undefined): decoding either into a pointer
+		// target succeeds with a zero value and no CBOR-level error, so
+		// these must be caught by the "not a map" check that runs after
+		// decoding, not by itemDecMode itself.
+		"COSE key: null":       {0xF6},
+		"COSE key: undefined":  {0xF7},
+		"COSE key: empty map":  {0xA0}, // well-formed, but has no kty (label 1)
+		// {1: {1:1, 1:1}}: a well-formed outer map whose sole value is
+		// itself a map with a duplicate key. Round-2 review found this
+		// passed when the COSE key decoded into map[int]cbor.RawMessage,
+		// since the nested value was captured as unparsed raw bytes and
+		// never itself decoded, so the dup-key check never ran on it.
+		"COSE key: duplicate map keys nested inside a value": {0xA1, 0x01, 0xA2, 0x01, 0x01, 0x01, 0x01},
 	}
 	for name, badCOSEKey := range coseKeyCases {
 		t.Run(name, func(t *testing.T) {

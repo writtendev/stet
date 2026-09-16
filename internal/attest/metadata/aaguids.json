@@ -1,6 +1,7 @@
 {
   "version": 1,
   "source": {
+    "excluded_for_status": [],
     "jwt_verified_to": "GlobalSign Root R3 (sha256 cb:b5:22:d7:b7:f1:27:ad:6a:01:13:86:5b:df:1c:d4:10:2e:7d:07:59:af:63:5a:7c:f4:72:0d:c9:63:c5:3b, fetched from http://secure.globalsign.com/cacert/root-r3.crt)",
     "mds3_blob_no": 282,
     "next_update": "2026-10-01",

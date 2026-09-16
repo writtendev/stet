@@ -10,9 +10,25 @@
 //  2. Verifies the JWT's x5c signing-certificate chain terminates at the
 //     well-known GlobalSign Root R3 (embedded below, fingerprint checked at
 //     runtime against the constant documented in both manifest.json and
-//     aaguids.json).
+//     aaguids.json), using x509.Verify (not a hand-rolled per-hop walk) so
+//     path building, NotBefore/NotAfter validity at retrieval time, basic
+//     constraints, and extended key usage (Go's default: ExtKeyUsageServerAuth,
+//     since the MDS3 signer is provisioned as a TLS-style certificate) are all
+//     checked the same way a browser would check them -- and pins the leaf to
+//     the actual FIDO MDS signer by DNS name (mds.fidoalliance.org), not just
+//     "chains to GlobalSign", since GlobalSign R3 is a public WebPKI root that
+//     signs unrelated ordinary TLS certificates too.
 //  3. Verifies the JWT's RS256 signature over its header+payload using the
 //     leaf signing certificate's public key.
+//
+// It does not check revocation (CRL/OCSP) on the MDS signing chain: this is a
+// manually-invoked generator, not an always-on verifier, and MDS3's own spec
+// point for freshness is the blob's short "nextUpdate" window rather than
+// revocation of its TLS-style signer, but a revoked signer would still slip
+// through undetected. If this ever needs hardening, GlobalSign publishes a
+// CRL distribution point on its issued intermediates (see the leaf/
+// intermediate certs' CRLDistributionPoints); this is a deliberate scope cut
+// for now, not an oversight.
 //
 // Only then does it parse the payload's "entries" and extract, for every
 // FIDO2 entry whose attestationRootCertificates chain to a Yubico, Titan or
@@ -32,14 +48,29 @@
 //     multi-level chains such as Yubico's Root 1 -> Intermediate A/B 1 ->
 //     FIDO Attestation A/B(2) 1.
 //
+// Every entry is also checked against its own statusReports: one carrying
+// REVOKED, ATTESTATION_KEY_COMPROMISE, USER_VERIFICATION_BYPASS,
+// USER_KEY_REMOTE_COMPROMISE, or USER_KEY_PHYSICAL_COMPROMISE in any status
+// report (not just its latest) is excluded rather than bundled as trusted,
+// and recorded under aaguids.json's source.excluded_for_status so a
+// regeneration never silently drops trust material without a record of why.
+//
 // The MDS endpoint rate-limits aggressively (HTTP 429); fetchBlob retries
 // with linear backoff. If the blob can never be fetched or fails
 // verification, this program exits non-zero rather than writing anything —
 // it never fabricates entries.
 //
+// Regenerating always keeps the roots, intermediates, and aaguid entries
+// already on disk untouched when nothing about them actually changed. When
+// something did change, -version must be passed explicitly, greater than
+// the version already recorded in both manifest.json and aaguids.json: see
+// the -version flag's own help text. This is what lets Result.RootSetVersion
+// (internal/attest) tell trust sets apart across a regeneration -- without
+// it, two different root sets could both claim version 1.
+//
 // Usage:
 //
-//	go run ./scripts/gen-mds-aaguids [-blob path/to/cached.jwt] [-dry-run]
+//	go run ./scripts/gen-mds-aaguids [-blob path/to/cached.jwt] [-dry-run] [-version N]
 //
 // Run from the repository root; it reads and writes internal/attest/.
 package main
@@ -61,6 +92,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -79,6 +111,14 @@ var globalSignR3PEM []byte
 
 const mdsBlobURL = "https://mds3.fidoalliance.org/"
 
+// mdsSignerDNSName is the Subject Alternative Name every legitimate FIDO
+// MDS3 blob signing certificate carries. Requiring an exact DNS match here
+// (not just "chains to a well-known public root") is what stops any other
+// GlobalSign-issued certificate -- an ordinary purchased OV/DV TLS cert
+// chains to the same root -- from being accepted as if it were the MDS
+// signer.
+const mdsSignerDNSName = "mds.fidoalliance.org"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "gen-mds-aaguids:", err)
@@ -91,6 +131,11 @@ func run() error {
 	attestDir := flag.String("attest-dir", "internal/attest", "path to the internal/attest package directory")
 	maxRetries := flag.Int("retries", 6, "max fetch attempts on HTTP 429 before giving up")
 	dryRun := flag.Bool("dry-run", false, "verify and extract, print a summary, but write nothing")
+	version := flag.Int("version", 0, "root-set version to write to roots/manifest.json and metadata/aaguids.json. "+
+		"Required (and must be greater than the version already on disk) whenever this run's roots, intermediates, "+
+		"or aaguid entries differ from what's already committed there; a run that changes nothing keeps the "+
+		"existing version and ignores this flag, matching Result.RootSetVersion's audit-trail purpose: it must be "+
+		"possible to tell, from the version alone, exactly which root set was in force when a credential was classified.")
 	flag.Parse()
 
 	var raw []byte
@@ -107,7 +152,7 @@ func run() error {
 		}
 	}
 
-	payload, err := verifyAndParse(raw)
+	payload, err := verifyAndParse(raw, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("verifying MDS3 blob: %w", err)
 	}
@@ -117,12 +162,16 @@ func run() error {
 		payload.No, payload.NextUpdate, len(payload.Entries), len(extracted.aaguids))
 	fmt.Printf("  roots discovered:         %d\n", len(extracted.roots))
 	fmt.Printf("  intermediates discovered: %d\n", len(extracted.intermediates))
+	fmt.Printf("  excluded (compromised/revoked status): %d\n", len(extracted.excluded))
+	for _, ex := range extracted.excluded {
+		fmt.Printf("    - %s %s (%s): status %s\n", ex.Vendor, ex.AAGUID, ex.Description, ex.Status)
+	}
 
 	if *dryRun {
 		return nil
 	}
 
-	return writeOutputs(*attestDir, payload, extracted)
+	return writeOutputs(*attestDir, payload, extracted, *version)
 }
 
 // fetchBlob fetches url, retrying on HTTP 429 with linear backoff
@@ -171,8 +220,42 @@ type mdsPayload struct {
 }
 
 type mdsEntry struct {
-	AAGUID            string           `json:"aaguid"`
-	MetadataStatement *mdsMetadataStmt `json:"metadataStatement"`
+	AAGUID            string            `json:"aaguid"`
+	MetadataStatement *mdsMetadataStmt  `json:"metadataStatement"`
+	StatusReports     []mdsStatusReport `json:"statusReports"`
+}
+
+// mdsStatusReport is the subset of an MDS3 entry's statusReports[] items
+// (FIDO Metadata Service, AuthenticatorStatus) this program needs to decide
+// trust, not display.
+type mdsStatusReport struct {
+	Status string `json:"status"`
+}
+
+// compromisedStatuses are the FIDO Metadata Service AuthenticatorStatus
+// values that mean an authenticator's attestation key or user-verification
+// method must no longer be trusted. MDS keeps every statusReports entry an
+// authenticator has ever received, not just the newest, so an entry
+// carrying any one of these -- not only its most recent report -- is never
+// bundled: a later, unrelated status report does not retract an earlier
+// compromise call.
+var compromisedStatuses = map[string]bool{
+	"REVOKED":                      true,
+	"ATTESTATION_KEY_COMPROMISE":   true,
+	"USER_VERIFICATION_BYPASS":     true,
+	"USER_KEY_REMOTE_COMPROMISE":   true,
+	"USER_KEY_PHYSICAL_COMPROMISE": true,
+}
+
+// compromisedStatusIn returns the first status in reports that appears in
+// compromisedStatuses, or "" if none does.
+func compromisedStatusIn(reports []mdsStatusReport) string {
+	for _, r := range reports {
+		if compromisedStatuses[r.Status] {
+			return r.Status
+		}
+	}
+	return ""
 }
 
 type mdsMetadataStmt struct {
@@ -187,10 +270,13 @@ type mdsUVAlt struct {
 }
 
 // verifyAndParse verifies raw as a JWT: its x5c chain must terminate at the
-// embedded, fingerprint-checked GlobalSign Root R3, and its RS256 signature
-// must verify against the leaf (x5c[0]) certificate's public key. Only then
-// does it decode and return the payload.
-func verifyAndParse(raw []byte) (*mdsPayload, error) {
+// embedded, fingerprint-checked GlobalSign Root R3 AND its leaf must be the
+// FIDO MDS signer (DNS name mds.fidoalliance.org, valid at checkAt), and its
+// RS256 signature must verify against the leaf (x5c[0]) certificate's public
+// key. Only then does it decode and return the payload. checkAt is normally
+// time.Now(), passed explicitly so tests can verify a fixture chain outside
+// its real validity window.
+func verifyAndParse(raw []byte, checkAt time.Time) (*mdsPayload, error) {
 	parts := strings.Split(strings.TrimSpace(string(raw)), ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("not a JWT: got %d dot-separated parts, want 3", len(parts))
@@ -234,18 +320,20 @@ func verifyAndParse(raw []byte) (*mdsPayload, error) {
 		return nil, err
 	}
 
-	// Verify each hop's signature: x5c is leaf-first, so certs[i] must be
-	// signed by certs[i+1], up to whichever cert is (or chains to) the root.
-	for i := 0; i < len(certs)-1; i++ {
-		if err := certs[i].CheckSignatureFrom(certs[i+1]); err != nil {
-			return nil, fmt.Errorf("x5c[%d] does not chain to x5c[%d]: %w", i, i+1, err)
-		}
-	}
-	last := certs[len(certs)-1]
-	if sha256Hex(last.Raw) != sha256Hex(root.Raw) {
-		if err := last.CheckSignatureFrom(root); err != nil {
-			return nil, fmt.Errorf("x5c chain does not terminate at GlobalSign Root R3: %w", err)
-		}
+	// Build the chain with x509.Verify rather than a hand-rolled per-hop
+	// CheckSignatureFrom walk: this gets path building, NotBefore/NotAfter
+	// validity at checkAt, basic-constraints/CA checks on every
+	// intermediate, and extended-key-usage checking (KeyUsages is left
+	// empty, so Go requires the default ExtKeyUsageServerAuth -- the MDS3
+	// signer is provisioned as a TLS-style certificate) for free -- and,
+	// critically, DNSName pins the leaf to the actual FIDO MDS signer
+	// rather than accepting any certificate that happens to chain to the
+	// well-known, public GlobalSign Root R3 (which also signs unrelated,
+	// purchasable OV/DV TLS certificates).
+	roots := x509.NewCertPool()
+	roots.AddCert(root)
+	if err := verifyLeafChain(certs, roots, mdsSignerDNSName, checkAt); err != nil {
+		return nil, fmt.Errorf("x5c leaf does not verify to GlobalSign Root R3 as %s at %s: %w", mdsSignerDNSName, checkAt.UTC().Format(time.RFC3339), err)
 	}
 
 	leaf := certs[0]
@@ -272,6 +360,31 @@ func verifyAndParse(raw []byte) (*mdsPayload, error) {
 		return nil, fmt.Errorf("parsing JWT payload: %w", err)
 	}
 	return &payload, nil
+}
+
+// verifyLeafChain builds a chain from certs (leaf-first, certs[1:] used as
+// the intermediate pool) to roots and requires it to be valid for dnsName
+// at checkAt, using x509.Verify's own path building, validity-window, and
+// extended-key-usage checks (an empty KeyUsages means Go requires the
+// default ExtKeyUsageServerAuth). It is factored out of verifyAndParse so
+// tests can exercise the DNS-name pinning and validity-window behavior
+// against a synthetic chain, without the real GlobalSign Root R3 private
+// key.
+func verifyLeafChain(certs []*x509.Certificate, roots *x509.CertPool, dnsName string, checkAt time.Time) error {
+	if len(certs) == 0 {
+		return errors.New("no certificates to verify")
+	}
+	intermediates := x509.NewCertPool()
+	for _, c := range certs[1:] {
+		intermediates.AddCert(c)
+	}
+	_, err := certs[0].Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		CurrentTime:   checkAt,
+		DNSName:       dnsName,
+	})
+	return err
 }
 
 func loadEmbeddedGlobalSignR3() (*x509.Certificate, error) {
@@ -315,6 +428,19 @@ type extraction struct {
 	aaguids       []aaguidOut
 	roots         map[string]*certOut // sha256 -> cert, self-signed
 	intermediates map[string]*certOut // sha256 -> cert, not self-signed
+	excluded      []excludedEntry     // entries dropped for a compromised/revoked status
+}
+
+// excludedEntry records one FIDO2 entry that was otherwise eligible (a
+// covered vendor, well-formed root certs) but was dropped because a
+// statusReports entry marked it compromised or revoked. writeOutputs
+// persists these into aaguids.json's source block so a regeneration never
+// silently drops trust material without a record of why.
+type excludedEntry struct {
+	AAGUID      string `json:"aaguid"`
+	Vendor      string `json:"vendor"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
 }
 
 // vendorFromRootSubject identifies the vendor a root/intermediate
@@ -350,6 +476,7 @@ func extractVendorEntries(payload *mdsPayload) *extraction {
 	out := &extraction{
 		roots:         map[string]*certOut{},
 		intermediates: map[string]*certOut{},
+		excluded:      []excludedEntry{},
 	}
 
 	for _, e := range payload.Entries {
@@ -380,6 +507,16 @@ func extractVendorEntries(payload *mdsPayload) *extraction {
 		}
 		if vendor == "" {
 			continue // not one of Yubico/Titan/Feitian
+		}
+
+		if status := compromisedStatusIn(e.StatusReports); status != "" {
+			out.excluded = append(out.excluded, excludedEntry{
+				AAGUID:      e.AAGUID,
+				Vendor:      vendor,
+				Description: ms.Description,
+				Status:      status,
+			})
+			continue // compromised or revoked; never bundle as trusted
 		}
 
 		uvSet := map[string]bool{}
@@ -424,6 +561,7 @@ func extractVendorEntries(payload *mdsPayload) *extraction {
 	resolveIssuers(out)
 
 	sort.Slice(out.aaguids, func(i, j int) bool { return out.aaguids[i].AAGUID < out.aaguids[j].AAGUID })
+	sort.Slice(out.excluded, func(i, j int) bool { return out.excluded[i].AAGUID < out.excluded[j].AAGUID })
 	return out
 }
 
@@ -507,8 +645,12 @@ type aaguidMetadata struct {
 // on disk under attestDir (preserving existing roots/manifest entries and
 // filenames byte-for-byte when their sha256 is unchanged), writes any new
 // roots/*.pem files, and rewrites roots/manifest.json and
-// metadata/aaguids.json.
-func writeOutputs(attestDir string, payload *mdsPayload, ex *extraction) error {
+// metadata/aaguids.json. requestedVersion is the -version flag: it is
+// required, and must exceed the version already on disk, whenever this run
+// would actually change the roots, intermediates, or aaguid entries: see
+// the -version flag's own help text for why (Result.RootSetVersion must be
+// able to tell trust sets apart across a regeneration).
+func writeOutputs(attestDir string, payload *mdsPayload, ex *extraction, requestedVersion int) error {
 	rootsDir := filepath.Join(attestDir, "roots")
 	manifestPath := filepath.Join(rootsDir, "manifest.json")
 	aaguidsPath := filepath.Join(attestDir, "metadata", "aaguids.json")
@@ -521,8 +663,14 @@ func writeOutputs(attestDir string, payload *mdsPayload, ex *extraction) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if manifest.Version < 1 {
-		manifest.Version = 1
+
+	var existingAAGUIDs aaguidMetadata
+	if b, err := os.ReadFile(aaguidsPath); err == nil {
+		if err := json.Unmarshal(b, &existingAAGUIDs); err != nil {
+			return fmt.Errorf("parsing existing %s: %w", aaguidsPath, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 
 	taken := map[string]bool{}
@@ -606,6 +754,31 @@ func writeOutputs(attestDir string, payload *mdsPayload, ex *extraction) error {
 		})
 	}
 
+	// The root set has changed iff a root or intermediate was added, or the
+	// aaguid entries this run produced differ from what's already recorded
+	// (a status-report change, a new/changed UV method, etc. can all change
+	// aaguids.json without touching a single root). A regeneration that
+	// changes nothing keeps the existing version(s) untouched and ignores
+	// requestedVersion entirely, so re-running against the same blob is a
+	// no-op rather than a spurious version bump.
+	changed := len(newRootSHAs) > 0 || newIntermediateCount > 0 ||
+		!reflect.DeepEqual(existingAAGUIDs.Entries, ex.aaguids)
+
+	newManifestVersion := manifest.Version
+	newAAGUIDsVersion := existingAAGUIDs.Version
+	if changed {
+		if requestedVersion <= manifest.Version || requestedVersion <= existingAAGUIDs.Version {
+			return fmt.Errorf(
+				"roots, intermediates, or aaguid entries changed (manifest version %d, aaguids version %d on disk) "+
+					"but -version=%d does not exceed both; pass an explicit -version greater than the current "+
+					"root-set version to bump it (see the -version flag's help text)",
+				manifest.Version, existingAAGUIDs.Version, requestedVersion)
+		}
+		newManifestVersion = requestedVersion
+		newAAGUIDsVersion = requestedVersion
+	}
+	manifest.Version = newManifestVersion
+
 	if err := os.MkdirAll(rootsDir, 0o755); err != nil {
 		return err
 	}
@@ -632,21 +805,31 @@ func writeOutputs(attestDir string, payload *mdsPayload, ex *extraction) error {
 			"GlobalSign Root R3 (sha256 %s, fetched from http://secure.globalsign.com/cacert/root-r3.crt)",
 			colonize(expectedGlobalSignR3SHA256),
 		),
+		// excluded_for_status records every otherwise-eligible entry this
+		// run dropped for a compromised/revoked statusReports entry, so a
+		// regeneration never silently loses trust material without a
+		// record of why. Entries excluded by an earlier run whose blob no
+		// longer lists them at all are not re-recorded here; they simply
+		// stop appearing, the same as any other vendor entry MDS drops.
+		"excluded_for_status": ex.excluded,
 	})
 	if err != nil {
 		return err
 	}
-	aaguidsOut := aaguidMetadata{Version: 1, Source: sourceJSON, Entries: ex.aaguids}
+	aaguidsOut := aaguidMetadata{Version: newAAGUIDsVersion, Source: sourceJSON, Entries: ex.aaguids}
 	aaguidsJSON, err := json.MarshalIndent(aaguidsOut, "", "  ")
 	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(aaguidsPath), 0o755); err != nil {
 		return err
 	}
 	if err := os.WriteFile(aaguidsPath, append(aaguidsJSON, '\n'), 0o644); err != nil {
 		return err
 	}
 
-	fmt.Printf("wrote %d new root PEM(s), %d new intermediate PEM(s), %s, %s\n",
-		len(newRootSHAs), newIntermediateCount, manifestPath, aaguidsPath)
+	fmt.Printf("wrote %d new root PEM(s), %d new intermediate PEM(s), %d excluded entries, root-set version %d, %s, %s\n",
+		len(newRootSHAs), newIntermediateCount, len(ex.excluded), newManifestVersion, manifestPath, aaguidsPath)
 	return nil
 }
 

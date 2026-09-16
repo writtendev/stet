@@ -70,21 +70,39 @@ func parseAuthData(raw []byte) (authData, error) {
 	rest = rest[credIDLen:]
 
 	// Exactly one CBOR item: the credential's COSE public key. It is
-	// decoded strictly as a CBOR map (itemDecMode rejects duplicate keys
-	// and indefinite length), not merely captured as an opaque
-	// cbor.RawMessage: unmarshaling into RawMessage only checks
-	// well-formedness of the outer item and never interprets it as a map,
-	// so it would silently accept a duplicate-key map, a non-map item
-	// (e.g. a bare integer or byte string), or anything else well-formed.
-	// A COSE key with duplicate labels is a parser differential waiting to
-	// happen: this package and whatever later verifies an assertion
-	// against Result.CredentialKey (STET-10) must agree on which value
-	// -2/-3 etc. resolve to. The exact raw bytes are still what's
-	// returned, computed from how many bytes decoding the map consumed.
-	var coseKeyMap map[int]cbor.RawMessage
-	tail, err := itemDecMode.UnmarshalFirst(rest, &coseKeyMap)
+	// decoded generically (into any, not a fixed map[int]cbor.RawMessage)
+	// so that itemDecMode's DupMapKeyEnforcedAPF check applies
+	// recursively to every nested map, not just the top level: capturing
+	// each value as an undecoded cbor.RawMessage would let a duplicate
+	// key buried inside a nested map value pass unnoticed, since RawMessage
+	// only slices bytes and never decodes their contents.
+	//
+	// CBOR null and undefined, decoded into a pointer target (any pointer,
+	// including *any), succeed with a zero value and no error -- the same
+	// behavior encoding/json gives a pointer -- so they don't surface as a
+	// decode error here. Instead they fall out of the map type assertion
+	// below: a nil interface is not a map[any]any, so null/undefined are
+	// rejected the same way a bare integer or byte string is: "not a map".
+	// An empty map (well-formed, but missing the required kty label) is
+	// rejected explicitly, since a COSE key with no kty is not a valid COSE
+	// key regardless of well-formedness.
+	//
+	// This package and whatever later verifies an assertion against
+	// Result.CredentialKey (STET-10) must agree on which value -2/-3 etc.
+	// resolve to; the exact raw bytes are still what's returned, computed
+	// from how many bytes decoding the item consumed.
+	var coseKeyAny any
+	tail, err := itemDecMode.UnmarshalFirst(rest, &coseKeyAny)
 	if err != nil {
 		return authData{}, fmt.Errorf("attest: authData: decoding COSE key: %w", err)
+	}
+	coseKeyMap, ok := coseKeyAny.(map[any]any)
+	if !ok {
+		return authData{}, fmt.Errorf("attest: authData: COSE key is %T, want a CBOR map", coseKeyAny)
+	}
+	const coseLabelKty = uint64(1)
+	if _, hasKty := coseKeyMap[coseLabelKty]; !hasKty {
+		return authData{}, fmt.Errorf("attest: authData: COSE key map has no kty (label 1)")
 	}
 	ad.COSEKey = rest[:len(rest)-len(tail)]
 	rest = tail
