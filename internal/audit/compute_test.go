@@ -1,0 +1,275 @@
+package audit
+
+import (
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/writtendev/stet/internal/github"
+	"github.com/writtendev/stet/internal/gitlocal"
+)
+
+func t0(s string) time.Time {
+	tm, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		panic(err)
+	}
+	return tm
+}
+
+func TestBuildOfflineReport(t *testing.T) {
+	now := t0("2025-07-01T00:00:00Z")
+	commits := []gitlocal.Commit{
+		{SHA: "c1", AuthorName: "Alice", AuthorEmail: "a@example.com", CommittedAt: t0("2025-06-10T00:00:00Z"), SigStatus: "G"},
+		{SHA: "c2", AuthorName: "dependabot[bot]", AuthorEmail: "dependabot@users.noreply.github.com", CommittedAt: t0("2025-06-15T00:00:00Z"), SigStatus: "N"},
+	}
+
+	report := Build(Input{
+		Repo:          "writtendev/stet",
+		DefaultBranch: "main",
+		Months:        6,
+		Commits:       commits,
+	}, now)
+
+	if report.Sources.Git != true || report.Sources.GitHub != false {
+		t.Errorf("unexpected sources: %+v", report.Sources)
+	}
+	if report.Headline != nil {
+		t.Errorf("expected nil headline offline, got %+v", report.Headline)
+	}
+	if report.Merges != nil {
+		t.Errorf("expected nil merges offline, got %+v", report.Merges)
+	}
+	if report.Signatures.Commits != 2 || report.Signatures.Signed != 1 {
+		t.Errorf("unexpected signatures: %+v", report.Signatures)
+	}
+	if len(report.BotAgentShare) != 1 {
+		t.Fatalf("expected 1 month of bot/agent share, got %+v", report.BotAgentShare)
+	}
+	m := report.BotAgentShare[0]
+	if m.Month != "2025-06" || m.Commits != 2 || m.BotAgent != 1 || m.Share != 0.5 {
+		t.Errorf("unexpected month share: %+v", m)
+	}
+}
+
+func basePR(number int) github.PR {
+	return github.PR{
+		Number:        number,
+		URL:           "https://github.com/writtendev/stet/pull/" + strconv.Itoa(number),
+		AuthorLogin:   "author",
+		MergedByLogin: "author",
+		CreatedAt:     t0("2025-06-01T00:00:00Z"),
+		MergedAt:      t0("2025-06-02T00:00:00Z"),
+		FinalCommitAt: t0("2025-06-01T12:00:00Z"),
+	}
+}
+
+func TestAnalyzePRNoReviews(t *testing.T) {
+	pr := basePR(1)
+	a := analyzePR(pr)
+	if a.meaningfulReview {
+		t.Error("expected no meaningful review for a PR with zero reviews")
+	}
+	if a.latencyBucket != "none" {
+		t.Errorf("expected 'none' bucket, got %q", a.latencyBucket)
+	}
+}
+
+func TestAnalyzePRQualifyingApproval(t *testing.T) {
+	pr := basePR(2)
+	pr.MergedByLogin = "reviewer" // not self-merged
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: pr.FinalCommitAt.Add(10 * time.Minute)},
+	}
+	a := analyzePR(pr)
+	if !a.meaningfulReview {
+		t.Error("expected meaningful review from a qualifying approver after the final commit")
+	}
+	if a.latencyBucket != "1h-24h" {
+		t.Errorf("expected 1h-24h bucket (created 2025-06-01T00, approved 2025-06-01T12:10), got %q", a.latencyBucket)
+	}
+	if a.selfMerged {
+		t.Error("did not expect self-merged")
+	}
+}
+
+func TestAnalyzePRSelfApprovalDoesNotCount(t *testing.T) {
+	pr := basePR(3)
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "author", State: "APPROVED", SubmittedAt: pr.FinalCommitAt.Add(time.Minute)},
+	}
+	a := analyzePR(pr)
+	if a.meaningfulReview {
+		t.Error("a self-approval must never count as meaningful review")
+	}
+	if !a.selfApproved {
+		t.Error("expected selfApproved to be flagged")
+	}
+}
+
+func TestAnalyzePRBotApprovalDoesNotCount(t *testing.T) {
+	pr := basePR(4)
+	pr.MergedByLogin = "someone-else"
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "some-bot", AuthorIsBot: true, State: "APPROVED", SubmittedAt: pr.FinalCommitAt.Add(time.Minute)},
+	}
+	a := analyzePR(pr)
+	if a.meaningfulReview {
+		t.Error("a bot approval must never count as meaningful review")
+	}
+}
+
+func TestAnalyzePRApprovalExactlyAtCommitTimeCounts(t *testing.T) {
+	pr := basePR(5)
+	pr.MergedByLogin = "reviewer"
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: pr.FinalCommitAt},
+	}
+	a := analyzePR(pr)
+	if !a.meaningfulReview {
+		t.Error("an approval exactly at the final commit's time should count (at-or-after)")
+	}
+	if a.predatesFinalCommit {
+		t.Error("an approval exactly at commit time should not be flagged as predating it")
+	}
+}
+
+func TestAnalyzePRApprovalPredatesFinalCommit(t *testing.T) {
+	pr := basePR(6)
+	pr.MergedByLogin = "reviewer"
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: pr.FinalCommitAt.Add(-time.Hour)},
+	}
+	a := analyzePR(pr)
+	if a.meaningfulReview {
+		t.Error("a stale approval before the final commit should not count as meaningful")
+	}
+	if !a.predatesFinalCommit {
+		t.Error("expected predatesFinalCommit to be flagged")
+	}
+}
+
+func TestAnalyzePRSelfMerged(t *testing.T) {
+	pr := basePR(7)
+	pr.AuthorLogin = "same"
+	pr.MergedByLogin = "SAME" // case-insensitive
+	a := analyzePR(pr)
+	if !a.selfMerged {
+		t.Error("expected case-insensitive self-merge detection")
+	}
+}
+
+func TestBuildGitHubTierHeadlineAndFindings(t *testing.T) {
+	now := t0("2025-07-01T00:00:00Z")
+
+	reviewed := basePR(1)
+	reviewed.MergedByLogin = "reviewer"
+	reviewed.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: reviewed.FinalCommitAt.Add(time.Minute)},
+	}
+
+	unreviewed := basePR(2)
+
+	commits := []gitlocal.Commit{
+		{SHA: "direct1", Parents: nil, CommittedAt: t0("2025-06-20T00:00:00Z")}, // direct push, not tied to any PR
+	}
+
+	report := Build(Input{
+		Repo:            "writtendev/stet",
+		DefaultBranch:   "main",
+		Months:          6,
+		Commits:         commits,
+		GitHubAvailable: true,
+		TokenSource:     "env:GH_TOKEN",
+		PRs:             []github.PR{reviewed, unreviewed},
+	}, now)
+
+	if report.Headline == nil {
+		t.Fatal("expected a headline when GitHub tier is available")
+	}
+	// no_review (unreviewed PR) + direct_pushes(1) = 2; total = 2 PRs + 1 direct push = 3
+	if report.Headline.NoMeaningfulReview != 2 || report.Headline.Total != 3 {
+		t.Errorf("unexpected headline: %+v", report.Headline)
+	}
+	if report.Headline.Share != round4(2.0/3.0) {
+		t.Errorf("unexpected share: %v", report.Headline.Share)
+	}
+	if report.Merges.DirectPushes != 1 {
+		t.Errorf("expected 1 direct push, got %d", report.Merges.DirectPushes)
+	}
+	if report.Merges.NoReview != 1 {
+		t.Errorf("expected 1 PR without review, got %d", report.Merges.NoReview)
+	}
+
+	if len(report.Findings) != 1 || report.Findings[0].PR != 2 {
+		t.Errorf("expected only PR #2 flagged, got %+v", report.Findings)
+	}
+}
+
+func TestBuildGitHubTierDirectPushExcludesMergeCommits(t *testing.T) {
+	now := t0("2025-07-01T00:00:00Z")
+	pr := basePR(1)
+	pr.MergeCommitSHA = "merge1"
+	pr.MergedByLogin = "reviewer"
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: pr.FinalCommitAt.Add(time.Minute)},
+	}
+
+	commits := []gitlocal.Commit{
+		{SHA: "merge1", Parents: []string{"p1", "p2"}, CommittedAt: t0("2025-06-02T00:00:00Z")},
+	}
+
+	report := Build(Input{
+		DefaultBranch:   "main",
+		Months:          6,
+		Commits:         commits,
+		GitHubAvailable: true,
+		PRs:             []github.PR{pr},
+	}, now)
+
+	if report.Merges.DirectPushes != 0 {
+		t.Errorf("expected the PR's own merge commit to not count as a direct push, got %d", report.Merges.DirectPushes)
+	}
+}
+
+func TestBuildZeroDivisionShare(t *testing.T) {
+	now := t0("2025-07-01T00:00:00Z")
+	report := Build(Input{
+		DefaultBranch:   "main",
+		Months:          6,
+		GitHubAvailable: true,
+	}, now)
+
+	if report.Headline.Total != 0 || report.Headline.Share != 0 {
+		t.Errorf("expected a zero share (not NaN/Inf) for an empty window, got %+v", report.Headline)
+	}
+}
+
+func TestBuildEmptyWindow(t *testing.T) {
+	now := t0("2025-07-01T00:00:00Z")
+	report := Build(Input{DefaultBranch: "main", Months: 6}, now)
+	if report.Signatures.Commits != 0 {
+		t.Errorf("expected zero commits, got %d", report.Signatures.Commits)
+	}
+	if len(report.BotAgentShare) != 0 {
+		t.Errorf("expected no monthly buckets for an empty window, got %+v", report.BotAgentShare)
+	}
+}
+
+func TestBucketFor(t *testing.T) {
+	cases := []struct {
+		d    time.Duration
+		want string
+	}{
+		{time.Minute, "<5m"},
+		{10 * time.Minute, "5m-1h"},
+		{2 * time.Hour, "1h-24h"},
+		{3 * 24 * time.Hour, "1d-7d"},
+		{10 * 24 * time.Hour, ">7d"},
+	}
+	for _, tc := range cases {
+		if got := bucketFor(tc.d); got != tc.want {
+			t.Errorf("bucketFor(%v) = %q, want %q", tc.d, got, tc.want)
+		}
+	}
+}
