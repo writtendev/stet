@@ -27,15 +27,36 @@
 // add, an add of a previously-revoked credential (by credential ID, or by
 // the same underlying public key reappearing under a new credential ID),
 // a revoke of an unknown credential, or an unrecognized op are all load
-// errors. The one exception is a final line with no trailing newline: a
-// write that was cut short part-way through a record (e.g. ENOSPC) leaves
-// exactly that shape, so Load treats it as not-yet-committed and drops it
-// rather than failing the whole log. Add and Revoke, however, refuse to
-// write anything more once they see that shape, rather than silently
-// gluing a new record onto the dangling fragment — doing that would turn
-// a harmless, ignorable tail into a permanently unparseable line. There
-// is no delete or rewrite API, including for that dangling fragment; a
-// mistaken add is corrected by revoking it, never by editing the file.
+// errors.
+//
+// The commit rule for the file's final line, which is the only line that
+// can legitimately lack a trailing newline, is: a record is committed iff
+// its line parses as complete, valid JSON. A write that is cut short
+// part-way through a record (e.g. ENOSPC) can never produce valid JSON —
+// the closing brace is the last byte written — so that shape is an
+// uncommitted, not-yet-written fragment, and Load silently drops it
+// rather than failing the whole log. A final line that does parse,
+// despite lacking its newline, is already a complete record — for
+// example one hand-appended with `printf`/`echo -n`, or written by
+// something outside this package — and Load replays it exactly like any
+// other line, including rejecting it if it fails the usual per-op or
+// semantic checks.
+//
+// Add and Revoke apply the same rule before appending, and additionally
+// repair the file so the next write always lands after a clean,
+// newline-terminated boundary: an unterminated line that parses gets its
+// missing '\n' appended (an addition, never touching an existing byte);
+// an unterminated fragment that does not parse gets truncated away back
+// to the offset where it begins (removing only bytes that were never
+// part of a committed record). If a write itself then fails partway
+// through, the file is truncated back to its size from just before that
+// write. None of this is a rewrite: every byte removed by a truncation
+// was, by the commit rule above, never part of a committed record in the
+// first place, and every byte added is a terminator for a record that
+// was already committed. No committed record is ever removed or
+// rewritten — that is what "append-only" means here. There is still no
+// delete or rewrite API for a committed record; a mistaken add is
+// corrected by revoking it, never by editing the file.
 //
 // Entries do not carry a hardware attestation trust class (e.g. "YubiKey
 // series 5" vs "unknown"); that classification is STET-6's decision, made
@@ -308,13 +329,22 @@ func (l *Log) lockFile() (func(), error) {
 
 // reloadLocked re-reads the log file from scratch (never a cached view)
 // and replays it into a fresh Set, the same way Load does — including
-// Load's tolerance of a final, newline-less line as a not-yet-committed
-// write that was cut short. It additionally refuses to proceed at all
-// when the file's raw tail is in that shape: Add/Revoke must not append
-// anything while a dangling, uncommitted fragment sits at the end, since
-// doing so would glue the new record onto it and turn a harmless,
-// ignorable fragment into a permanently unparseable line. Callers must
-// hold l.mu and the flock (see lockFile).
+// Load's commit rule for a final, newline-less line (see the package
+// doc). Unlike Load, which only reads, reloadLocked also repairs the
+// on-disk file so the append that follows always lands after a clean,
+// newline-terminated boundary:
+//
+//   - a final line that parses (already committed, just missing its
+//     terminator) gets a single '\n' appended to the file — an addition
+//     that touches no existing byte;
+//   - a final line that does not parse (an uncommitted fragment) gets
+//     the file truncated back to the offset right after the last
+//     complete record, discarding only bytes that were never part of a
+//     committed record.
+//
+// Either repair keeps append-only intact: nothing committed is ever
+// removed or rewritten. Callers must hold l.mu and the flock (see
+// lockFile).
 func (l *Log) reloadLocked() (*Set, error) {
 	if _, err := l.f.Seek(0, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("trust: seek %s: %w", l.path, err)
@@ -325,14 +355,79 @@ func (l *Log) reloadLocked() (*Set, error) {
 	}
 
 	if len(data) > 0 && data[len(data)-1] != '\n' {
-		return nil, fmt.Errorf("trust: %s ends in an unterminated record (a previous write was likely cut short); refusing to append until it is resolved", l.path)
+		i := bytes.LastIndexByte(data, '\n')
+		tail := data[i+1:]
+		if json.Valid(tail) {
+			// Already a committed record by the commit rule; it is
+			// only missing its terminator. Supply it.
+			if err := l.terminateLocked(); err != nil {
+				return nil, err
+			}
+			data = append(data, '\n')
+		} else {
+			// An uncommitted fragment. Discard exactly the bytes after
+			// the last completed record; nothing before that offset is
+			// touched.
+			truncateAt := int64(i + 1)
+			if err := l.truncateLocked(truncateAt); err != nil {
+				return nil, err
+			}
+			data = data[:truncateAt]
+		}
 	}
 
 	return loadRecords(data, l.path)
 }
 
-// appendLocked marshals and writes rec, fsyncing before it returns.
-// Callers must hold l.mu and the flock (see lockFile).
+// terminateLocked appends a single '\n' at the current end of the file
+// and fsyncs. Callers must hold l.mu and the flock, and must only call
+// this when reloadLocked has determined the raw tail is already a
+// complete, valid record that is simply missing its terminator — this
+// never rewrites or removes a byte, it only supplies the terminator a
+// committed record was always missing.
+func (l *Log) terminateLocked() error {
+	if _, err := l.f.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("trust: seek %s: %w", l.path, err)
+	}
+	if _, err := l.f.Write([]byte("\n")); err != nil {
+		return fmt.Errorf("trust: terminate %s: %w", l.path, err)
+	}
+	if err := l.f.Sync(); err != nil {
+		return fmt.Errorf("trust: sync %s: %w", l.path, err)
+	}
+	return nil
+}
+
+// truncateLocked truncates the file to size and fsyncs. Callers must
+// hold l.mu and the flock, and must only pass a size that removes
+// nothing but bytes reloadLocked has determined were never part of a
+// committed record (an uncommitted trailing fragment, or — from
+// appendLocked — the tail of a write that itself just failed
+// partway through). Append-only means no committed record is ever
+// removed or rewritten by this call.
+func (l *Log) truncateLocked(size int64) error {
+	if err := l.f.Truncate(size); err != nil {
+		return fmt.Errorf("trust: truncate %s: %w", l.path, err)
+	}
+	if _, err := l.f.Seek(size, io.SeekStart); err != nil {
+		return fmt.Errorf("trust: seek %s: %w", l.path, err)
+	}
+	if err := l.f.Sync(); err != nil {
+		return fmt.Errorf("trust: sync %s: %w", l.path, err)
+	}
+	return nil
+}
+
+// appendLocked marshals and writes rec, fsyncing before it returns. If
+// the write itself fails partway through — leaving some prefix of rec's
+// bytes on disk — appendLocked truncates the file back to the size it
+// had immediately before this call, undoing only the bytes this call
+// itself just wrote. That is never a rewrite: those bytes were never
+// part of a committed record (the caller never saw this call succeed),
+// so removing them doesn't touch anything Load, or a concurrent reload,
+// could have already read back as committed. Callers must hold l.mu and
+// the flock, and must have just called reloadLocked so the file's tail
+// is a clean boundary to append onto.
 func (l *Log) appendLocked(rec any) error {
 	b, err := json.Marshal(rec)
 	if err != nil {
@@ -340,7 +435,15 @@ func (l *Log) appendLocked(rec any) error {
 	}
 	b = append(b, '\n')
 
+	preWriteSize, err := l.f.Seek(0, io.SeekEnd)
+	if err != nil {
+		return fmt.Errorf("trust: seek %s: %w", l.path, err)
+	}
+
 	if _, err := l.w.Write(b); err != nil {
+		if terr := l.truncateLocked(preWriteSize); terr != nil {
+			return fmt.Errorf("trust: write record: %w (additionally failed to undo the partial write: %v)", err, terr)
+		}
 		return fmt.Errorf("trust: write record: %w", err)
 	}
 	if err := l.w.Sync(); err != nil {
@@ -394,15 +497,22 @@ func (s *Set) VerifyAssertion(rpID string, a *fido.Assertion, opts fido.VerifyOp
 // Load reads and replays the trust log at path, returning the resulting
 // Set. A path that does not exist yet loads as an empty, valid Set (a
 // fresh trust list before any enrollment). Load returns an error at the
-// first complete (newline-terminated) record that does not make sense
-// against everything before it: invalid JSON, an unknown op, a duplicate
-// add, an add of a previously-revoked credential, or a revoke of an
-// unknown or already-revoked credential.
+// first committed record that does not make sense against everything
+// before it: invalid JSON, an unknown op, a duplicate add, an add of a
+// previously-revoked credential, or a revoke of an unknown or
+// already-revoked credential.
 //
-// A final line with no trailing newline is the exception: it is the
-// shape a write leaves when it is cut short part-way through a record
-// (for example, ENOSPC), so Load treats it as not-yet-committed and
-// silently drops it rather than failing the whole log over it.
+// The file's final line is the only one allowed to lack a trailing
+// newline, and whether it counts as committed follows one rule: it is
+// committed iff it parses as complete, valid JSON. A write cut short
+// part-way through a record (for example, ENOSPC) can never satisfy
+// that — the closing brace is the last byte written — so that shape is
+// an uncommitted fragment, and Load silently drops it rather than
+// failing the whole log over it. A final line that does parse is
+// already a complete record despite the missing newline (e.g. hand
+// appended, or written by something else), and Load replays it exactly
+// like any other line, including erroring on it if it fails the checks
+// above.
 func Load(path string) (*Set, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -418,22 +528,30 @@ func Load(path string) (*Set, error) {
 // log at path (path is used only in error messages), returning the
 // resulting Set.
 //
-// If data does not end in a newline, its final, unterminated line is
-// dropped before replay: that shape means the write that produced it was
-// cut short, so the line is treated as not-yet-committed rather than as
-// corruption. Every remaining, newline-terminated line is still replayed
-// strictly.
+// If data does not end in a newline, its final line is judged by the
+// commit rule: dropped, silently, if it does not parse as complete,
+// valid JSON (an uncommitted fragment — see Load's doc); kept and
+// replayed exactly like any other line if it does parse (a committed
+// record that is simply missing its terminator). Every other,
+// newline-terminated line is always replayed strictly.
 func loadRecords(data []byte, path string) (*Set, error) {
 	set := &Set{keys: make(map[string]*storedKey), byPubKey: make(map[string]*storedKey)}
 
 	if len(data) > 0 && data[len(data)-1] != '\n' {
-		if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
-			data = data[:i+1]
-		} else {
-			// The entire file is one unterminated line: nothing in it
-			// has ever been committed.
-			data = nil
+		i := bytes.LastIndexByte(data, '\n')
+		tail := data[i+1:]
+		if !json.Valid(tail) {
+			if i >= 0 {
+				data = data[:i+1]
+			} else {
+				// The entire file is one unterminated fragment:
+				// nothing in it has ever been committed.
+				data = nil
+			}
 		}
+		// else: tail is complete, valid JSON despite the missing
+		// newline. Leave data as-is; bytes.Split below still yields it
+		// as the final "line" and the loop replays it normally.
 	}
 
 	lineNum := 0

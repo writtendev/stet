@@ -563,16 +563,34 @@ func TestLoadIgnoresUnterminatedTrailingLine(t *testing.T) {
 	}
 }
 
-// TestAddRefusesToAppendPastUnterminatedTrailingLine covers the write
-// side of the same scenario: Add/Revoke must not blindly append after a
-// dangling, uncommitted fragment. Doing so would glue the new record
-// onto it, turning a harmless line Load already ignores into a
-// permanently unparseable one that would poison every future Load.
-func TestAddRefusesToAppendPastUnterminatedTrailingLine(t *testing.T) {
+// The tests below cover round 4 of the same torn-write theme: Load must
+// not drop a final unterminated line that is actually a complete,
+// committed record (round-3 finding: a revoke without a trailing
+// newline used to be silently ignored, so a revoked key kept verifying
+// -- fail-open); and Add/Revoke must be able to recover from a genuinely
+// uncommitted fragment on their own, in-package, rather than refusing
+// forever (round-3 finding: no way to revoke a compromised key once the
+// log ends in a torn fragment). See reloadLocked, terminateLocked and
+// truncateLocked in trust.go for the recovery this exercises.
+
+// TestAddCleansUpUnterminatedFragmentAndSucceeds replaces the old
+// contract asserted by (the now-removed)
+// TestAddRefusesToAppendPastUnterminatedTrailingLine: Add must no longer
+// refuse forever when the file ends in an uncommitted fragment. It must
+// truncate the fragment away (discarding only those never-committed
+// bytes) and append the new record, so the log is loadable again and a
+// user who says "revoke this compromised key" right after a torn write
+// is not stuck.
+func TestAddCleansUpUnterminatedFragmentAndSucceeds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
 
+	good := `{"op":"add","credential_id":"aGVsbG8","public_key":"` +
+		rawTestPublicKeyBase64(t, "torn-good") +
+		`","alg":"ES256","rp_id":"stet","aaguid":"0102030405060708090a0b0c0d0e0f10","label":"x","at":"2026-01-02T03:04:05Z"}` + "\n"
+	// No closing brace and no trailing newline: this can never parse as
+	// JSON, so by the commit rule it was never committed.
 	torn := `{"op":"add","credential_id":"partial`
-	if err := os.WriteFile(path, []byte(torn), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(good+torn), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -582,15 +600,210 @@ func TestAddRefusesToAppendPastUnterminatedTrailingLine(t *testing.T) {
 	}
 	defer func() { _ = log.Close() }()
 
-	if err := log.Add(testEntry(t, "torn-new")); err == nil {
-		t.Fatalf("Add onto a log with an unterminated trailing record: expected an error")
+	entry := testEntry(t, "torn-new")
+	if err := log.Add(entry); err != nil {
+		t.Fatalf("Add after an uncommitted fragment: %v, want it to clean up and succeed", err)
 	}
 
+	on, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(on), "partial") {
+		t.Errorf("the uncommitted fragment is still on disk: %q", on)
+	}
+
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after the cleanup: %v, want the log to load cleanly", err)
+	}
+	if _, state := set.Lookup([]byte("hello")); state != StateActive {
+		t.Errorf("the earlier, complete record: state = %v, want StateActive", state)
+	}
+	if _, state := set.Lookup(entry.CredentialID); state != StateActive {
+		t.Errorf("the newly added record: state = %v, want StateActive", state)
+	}
+}
+
+// TestLoadHonorsCompleteFinalLineMissingNewline covers the round-3
+// fail-open finding directly: a final line that is a complete, valid
+// record -- here a revoke -- must still be applied even without its
+// trailing newline. Dropping it (the old behavior) let a revoked key
+// verify as if still active.
+func TestLoadHonorsCompleteFinalLineMissingNewline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
+
+	log, err := Open(path, WithClock(fixedClock(time.Now())))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	entry := testEntry(t, "yara")
+	if err := log.Add(entry); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := log.Revoke(entry.CredentialID, "lost device"); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if err := log.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Strip the file's final newline, simulating a complete record
+	// written by something that doesn't append '\n', or an edit that
+	// dropped it -- the revoke line itself is fully intact JSON.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if data[len(data)-1] != '\n' {
+		t.Fatalf("test setup: expected the file to end in a newline before stripping it")
+	}
+	if err := os.WriteFile(path, data[:len(data)-1], 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load with a complete final revoke missing its newline: %v, want it honored", err)
+	}
+	if _, state := set.Lookup(entry.CredentialID); state != StateRevoked {
+		t.Fatalf("state = %v, want StateRevoked (the revoke must not be dropped)", state)
+	}
+
+	err = set.VerifyAssertion(entry.RPID, &fido.Assertion{CredentialID: entry.CredentialID}, fido.VerifyOptions{})
+	if !errors.Is(err, ErrRevokedKey) {
+		t.Errorf("VerifyAssertion error = %v, want ErrRevokedKey", err)
+	}
+}
+
+// TestAddTerminatesCompleteFinalLineMissingNewline is the write-side
+// counterpart: Add/Revoke must recognize the same shape (a complete
+// record missing only its newline) and repair it additively -- append
+// the missing '\n' -- rather than treating it as a fragment to discard,
+// which would silently lose a committed record.
+func TestAddTerminatesCompleteFinalLineMissingNewline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
+
+	log, err := Open(path, WithClock(fixedClock(time.Now())))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	first := testEntry(t, "zack")
+	if err := log.Add(first); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := log.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if err := os.WriteFile(path, data[:len(data)-1], 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	log2, err := Open(path, WithClock(fixedClock(time.Now())))
+	if err != nil {
+		t.Fatalf("Open (after stripping the trailing newline): %v", err)
+	}
+	defer func() { _ = log2.Close() }()
+
+	second := testEntry(t, "yolanda")
+	if err := log2.Add(second); err != nil {
+		t.Fatalf("Add after a complete-but-unterminated final line: %v, want it repaired and to succeed", err)
+	}
+
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, state := set.Lookup(first.CredentialID); state != StateActive {
+		t.Errorf("first (previously unterminated) record: state = %v, want StateActive", state)
+	}
+	if _, state := set.Lookup(second.CredentialID); state != StateActive {
+		t.Errorf("second (newly appended) record: state = %v, want StateActive", state)
+	}
+}
+
+// flakyWrite wraps an *os.File and, on its next Write call, physically
+// writes only a truncated prefix of the given bytes to the underlying
+// file before returning an error -- simulating a short write (e.g.
+// ENOSPC) that lands a partial, uncommitted record on disk. It fires at
+// most once.
+type flakyWrite struct {
+	*os.File
+	failWriteOnce bool
+}
+
+func (w *flakyWrite) Write(p []byte) (int, error) {
+	if w.failWriteOnce {
+		w.failWriteOnce = false
+		n := len(p) / 2
+		if _, err := w.File.Write(p[:n]); err != nil {
+			return 0, err
+		}
+		return n, errors.New("simulated short write")
+	}
+	return w.File.Write(p)
+}
+
+// TestAppendUndoesPartialWrite covers the appendLocked side of write
+// failure: if Write itself lands only a prefix of the record on disk
+// before failing, appendLocked must truncate that prefix back off
+// immediately, so the file is left exactly as it was before the failed
+// call -- not carrying a fragment for the next reloadLocked to have to
+// clean up.
+func TestAppendUndoesPartialWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
+
+	log, err := Open(path, WithClock(fixedClock(time.Now())))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = log.Close() }()
+
+	first := testEntry(t, "victor")
+	if err := log.Add(first); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if string(before) != torn {
-		t.Errorf("file changed after a refused Add: got %q, want unchanged %q", before, torn)
+
+	log.w = &flakyWrite{File: log.f, failWriteOnce: true}
+	second := testEntry(t, "uma")
+	if err := log.Add(second); err == nil {
+		t.Fatalf("Add: expected the simulated short write to surface")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("file after a failed write = %q, want it truncated back to %q", after, before)
+	}
+
+	// A committed record is never lost across this path: the retry
+	// (with a normal, non-flaky writer) must succeed, and Load must see
+	// exactly the first record plus this retried one -- nothing missing,
+	// nothing duplicated, no leftover fragment.
+	log.w = log.f
+	if err := log.Add(second); err != nil {
+		t.Fatalf("Add (retry after the failed write): %v", err)
+	}
+
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, state := set.Lookup(first.CredentialID); state != StateActive {
+		t.Errorf("first record: state = %v, want StateActive", state)
+	}
+	if _, state := set.Lookup(second.CredentialID); state != StateActive {
+		t.Errorf("retried second record: state = %v, want StateActive", state)
 	}
 }
