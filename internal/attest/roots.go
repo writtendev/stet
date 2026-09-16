@@ -19,8 +19,9 @@ var aaguidsJSON []byte
 
 // rootManifest is the schema of roots/manifest.json.
 type rootManifest struct {
-	Version int                 `json:"version"`
-	Roots   []rootManifestEntry `json:"roots"`
+	Version       int                         `json:"version"`
+	Roots         []rootManifestEntry         `json:"roots"`
+	Intermediates []intermediateManifestEntry `json:"intermediates,omitempty"`
 }
 
 type rootManifestEntry struct {
@@ -28,6 +29,35 @@ type rootManifestEntry struct {
 	Vendor              string `json:"vendor"`
 	Subject             string `json:"subject"`
 	SHA256              string `json:"sha256"`
+	NotAfter            string `json:"not_after"`
+	SourceURL           string `json:"source_url"`
+	Retrieved           string `json:"retrieved"`
+	CrossCheckedAgainst string `json:"cross_checked_against"`
+}
+
+// intermediateManifestEntry describes a non-self-signed certificate that
+// FIDO MDS3 lists in an authenticator's attestationRootCertificates
+// alongside a bundled root (e.g. "Titan Security Key Signing", or Yubico's
+// multi-level "Yubico Attestation Intermediate A/B 1" -> "Yubico FIDO
+// Attestation A/B(2) 1" chain under "Yubico Attestation Root 1"). MDS lists
+// these because some authenticators omit them from x5c; they are bundled
+// here strictly as intermediates, added to VerifyOptions.Intermediates, and
+// are never trust anchors.
+//
+// IssuerSHA256 is the DER SHA-256 of this certificate's immediate issuer,
+// which may be a bundled root (a rootManifestEntry.SHA256) or another
+// intermediate earlier in this same list (an intermediateManifestEntry.
+// SHA256): manifest.Intermediates must be ordered parent-before-child so
+// buildTrustStore can resolve each issuer from what it has already
+// validated. buildTrustStore checks the signature on every hop
+// (Certificate.CheckSignatureFrom the resolved issuer) and rejects the
+// manifest if any link doesn't verify or an issuer can't be resolved.
+type intermediateManifestEntry struct {
+	File                string `json:"file"`
+	Vendor              string `json:"vendor"`
+	Subject             string `json:"subject"`
+	SHA256              string `json:"sha256"`
+	IssuerSHA256        string `json:"issuer_sha256"`
 	NotAfter            string `json:"not_after"`
 	SourceURL           string `json:"source_url"`
 	Retrieved           string `json:"retrieved"`
@@ -57,6 +87,7 @@ type aaguidEntry struct {
 type trustStore struct {
 	pool           *x509.CertPool
 	rootVendor     map[string]string // sha256 hex (of cert.Raw) -> vendor
+	intermediates  []*x509.Certificate
 	rootSetVersion int
 	aaguids        map[[16]byte]aaguidRecord
 }
@@ -105,6 +136,74 @@ func buildTrustStore(rootPEMs map[string][]byte, manifest rootManifest, aaguidRa
 		rootVendor[gotSHA256] = entry.Vendor
 	}
 
+	// resolvable holds every certificate buildTrustStore has already
+	// accepted as a valid issuer: the bundled roots to start, plus each
+	// intermediate as it is itself validated. manifest.Intermediates must
+	// list parents before children so this resolves.
+	resolvable := make(map[string]*x509.Certificate, len(manifest.Roots)+len(manifest.Intermediates))
+	resolvableVendor := make(map[string]string, len(manifest.Roots)+len(manifest.Intermediates))
+	for _, entry := range manifest.Roots {
+		pemBytes := rootPEMs[entry.File]
+		block, _ := pem.Decode(pemBytes)
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("attest: %s: %w", entry.File, err)
+		}
+		resolvable[sha256Hex(cert.Raw)] = cert
+		resolvableVendor[sha256Hex(cert.Raw)] = entry.Vendor
+	}
+
+	var intermediates []*x509.Certificate
+	for _, entry := range manifest.Intermediates {
+		pemBytes, ok := rootPEMs[entry.File]
+		if !ok {
+			return nil, fmt.Errorf("attest: manifest references intermediate %q but no such PEM was supplied", entry.File)
+		}
+
+		block, _ := pem.Decode(pemBytes)
+		if block == nil || block.Type != "CERTIFICATE" {
+			return nil, fmt.Errorf("attest: %s: not a PEM certificate", entry.File)
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("attest: %s: %w", entry.File, err)
+		}
+		if isSelfSigned(cert) {
+			return nil, fmt.Errorf("attest: %s: listed as an intermediate but is self-signed; it belongs in roots, not intermediates", entry.File)
+		}
+
+		gotSHA256 := sha256Hex(cert.Raw)
+		wantSHA256 := strings.ToLower(entry.SHA256)
+		if gotSHA256 != wantSHA256 {
+			return nil, fmt.Errorf("attest: %s: sha256 %s does not match manifest %s", entry.File, gotSHA256, wantSHA256)
+		}
+
+		issuerSHA256 := strings.ToLower(entry.IssuerSHA256)
+		if issuerSHA256 == "" {
+			return nil, fmt.Errorf("attest: %s: intermediate manifest entry has no issuer_sha256", entry.File)
+		}
+		issuerCert, ok := resolvable[issuerSHA256]
+		if !ok {
+			return nil, fmt.Errorf("attest: %s: issuer_sha256 %s does not match any bundled root or earlier-listed intermediate (list parents before children)", entry.File, issuerSHA256)
+		}
+		if issuerVendor, ok := resolvableVendor[issuerSHA256]; !ok || issuerVendor != entry.Vendor {
+			return nil, fmt.Errorf("attest: %s: vendor %q does not match issuer's vendor %q", entry.File, entry.Vendor, resolvableVendor[issuerSHA256])
+		}
+
+		// Verify this hop's signature against its resolved issuer. This
+		// checks only the cryptographic link (and the issuer's CA/keyUsage
+		// constraints), not time validity: opts.At governs expiry when a
+		// real attestation is verified, and build time must not depend on
+		// wall-clock time.
+		if err := cert.CheckSignatureFrom(issuerCert); err != nil {
+			return nil, fmt.Errorf("attest: %s: does not chain to issuer_sha256 %s: %w", entry.File, issuerSHA256, err)
+		}
+
+		resolvable[gotSHA256] = cert
+		resolvableVendor[gotSHA256] = entry.Vendor
+		intermediates = append(intermediates, cert)
+	}
+
 	var meta aaguidMetadata
 	if err := json.Unmarshal(aaguidRaw, &meta); err != nil {
 		return nil, fmt.Errorf("attest: decoding aaguid metadata: %w", err)
@@ -135,9 +234,20 @@ func buildTrustStore(rootPEMs map[string][]byte, manifest rootManifest, aaguidRa
 	return &trustStore{
 		pool:           pool,
 		rootVendor:     rootVendor,
+		intermediates:  intermediates,
 		rootSetVersion: manifest.Version,
 		aaguids:        aaguids,
 	}, nil
+}
+
+// addIntermediatesTo adds every bundled intermediate certificate to pool.
+// These certificates are never trust anchors; they exist only so a chain
+// that omits them from x5c (as MDS documents some authenticators do) can
+// still be completed to a bundled root.
+func (ts *trustStore) addIntermediatesTo(pool *x509.CertPool) {
+	for _, cert := range ts.intermediates {
+		pool.AddCert(cert)
+	}
 }
 
 // isBundledRoot reports whether cert's DER encoding is byte-equal to one of
@@ -191,8 +301,15 @@ func loadEmbeddedTrust() (*trustStore, error) {
 		return nil, fmt.Errorf("attest: decoding roots/manifest.json: %w", err)
 	}
 
-	rootPEMs := make(map[string][]byte, len(manifest.Roots))
+	rootPEMs := make(map[string][]byte, len(manifest.Roots)+len(manifest.Intermediates))
 	for _, entry := range manifest.Roots {
+		data, err := rootsFS.ReadFile("roots/" + entry.File)
+		if err != nil {
+			return nil, err
+		}
+		rootPEMs[entry.File] = data
+	}
+	for _, entry := range manifest.Intermediates {
 		data, err := rootsFS.ReadFile("roots/" + entry.File)
 		if err != nil {
 			return nil, err

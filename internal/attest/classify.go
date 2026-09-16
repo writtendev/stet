@@ -201,18 +201,14 @@ func verify(st Statement, opts Options, trust *trustStore) (Result, error) {
 		return res, nil
 	}
 
-	// Step 8: chain.
-	chain, reason := verifyChain(leaf, stmt.X5C, trust, opts.At)
+	// Step 8: chain. leaf.Verify can return more than one valid chain (a
+	// cross-signed intermediate, or two bundled roots sharing a subject),
+	// so every chain is considered in step 9 rather than assuming index 0:
+	// which chain the AAGUID table endorses must not depend on the order
+	// an authenticator happened to put intermediates in x5c.
+	chains, reason := verifyChain(leaf, stmt.X5C, trust, opts.At)
 	if reason != "" {
 		res.Reasons = append(res.Reasons, reason)
-		return res, nil
-	}
-	root := chain[len(chain)-1]
-	rootSHA256, vendor, ok := trust.lookupRoot(root)
-	if !ok {
-		// leaf.Verify only ever returns chains anchored in trust.pool, so
-		// this should be unreachable; fail closed if it ever isn't.
-		res.Reasons = append(res.Reasons, reasonChainUntrusted)
 		return res, nil
 	}
 
@@ -222,7 +218,24 @@ func verify(st Statement, opts Options, trust *trustStore) (Result, error) {
 		res.Reasons = append(res.Reasons, reasonAAGUIDNotInMetadata)
 		return res, nil
 	}
-	if !rec.rootSHA256[rootSHA256] {
+
+	var rootSHA256, vendor string
+	matched := false
+	for _, chain := range chains {
+		root := chain[len(chain)-1]
+		sha256hex, v, ok := trust.lookupRoot(root)
+		if !ok {
+			// leaf.Verify only ever returns chains anchored in trust.pool,
+			// so this should be unreachable; skip rather than trust it.
+			continue
+		}
+		if rec.rootSHA256[sha256hex] {
+			rootSHA256, vendor = sha256hex, v
+			matched = true
+			break
+		}
+	}
+	if !matched {
 		res.Reasons = append(res.Reasons, reasonAAGUIDVendorMismatch)
 		return res, nil
 	}

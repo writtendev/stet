@@ -29,7 +29,7 @@
       "not_after": "9999-12-31T23:59:59Z",
       "source_url": "https://developers.yubico.com/PKI/yubico-ca-1.pem",
       "retrieved": "2026-09-16",
-      "cross_checked_against": "FIDO MDS3 blob no. 282, attestationRootCertificates of AAGUID fcc0118f-cd45-435b-8da1-9782b2da0715 (YubiKey 5 FIPS Series with NFC), where it anchors an Intermediate A/B -> Attestation B2/A leaf chain; OpenPGP signature on yubico-ca-1.pem.sig verified against key EAA09128E15582099347E5D3C81FDCBBE03F92DF"
+      "cross_checked_against": "FIDO MDS3 blob no. 282, attestationRootCertificates of AAGUID fcc0118f-cd45-435b-8da1-9782b2da0715 (YubiKey 5 FIPS Series with NFC), where it anchors an Intermediate A/B -\u003e Attestation B2/A leaf chain; OpenPGP signature on yubico-ca-1.pem.sig verified against key EAA09128E15582099347E5D3C81FDCBBE03F92DF"
     },
     {
       "file": "titan-root.pem",
@@ -70,6 +70,210 @@
       "source_url": "https://mds3.fidoalliance.org/ (attestationRootCertificates, AAGUID ee041bce-25e5-4cdb-8f86-897fd6418464, Feitian ePass FIDO2-NFC Authenticator)",
       "retrieved": "2026-09-16",
       "cross_checked_against": "FIDO MDS3 blob no. 282; root's own JWT signing chain verified to GlobalSign Root R3"
+    },
+    {
+      "file": "feitian-fido-root-ca.pem",
+      "vendor": "Feitian",
+      "subject": "CN=FEITIAN FIDO Root CA,O=Feitian Technologies,C=US",
+      "sha256": "1d0e48061d16ad771c76a4a2a4d856a497aa71578e1e9b3a309d1c0d6f68f7ba",
+      "not_after": "2124-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 238ab2f5-b57f-4917-b3c6-3d3c6c0c350f (FEITIAN FT-JCOS BioCard)"
+    },
+    {
+      "file": "feitian-fido-root-ca-cn.pem",
+      "vendor": "Feitian",
+      "subject": "CN=Feitian FIDO Root CA,O=Feitian Technologies,C=CN",
+      "sha256": "2b7f7417734ad972791ac23a53c596ff67d98c02d391c09ff1c128f097d9f8cc",
+      "not_after": "2052-06-07T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 2bff89f2-323a-48fc-b7c8-9ff7fe87c07e (Feitian BioPass FIDO2 Pro (Enterprise Profile))"
+    },
+    {
+      "file": "feitian-fido-ea-root.pem",
+      "vendor": "Feitian",
+      "subject": "CN=FEITIAN FIDO EA Root,O=Feitian Technologies,C=US",
+      "sha256": "3b0e51e8199d3d4a598860967e68315e1f3c3f4d1cc78a0f993d5a0dc2c39dc0",
+      "not_after": "2124-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 39589099-9a75-49fc-afaa-801ca211c62a (Feitian ePass FIDO-NFC (Enterprise Profile) (CTAP2.1, CTAP2.0, U2F))"
+    },
+    {
+      "file": "yubico-fido-preview-ca-2020.pem",
+      "vendor": "Yubico",
+      "subject": "CN=Yubico FIDO Preview CA 2020",
+      "sha256": "5d8b90f1d77433e3c2bf3afcfa923c984eed626b727df06d4d17e06b1eac17b7",
+      "not_after": "2021-12-31T18:17:11Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 34f5766d-1536-4a24-9033-0e294e510fb0 (YubiKey 5 Series with NFC Preview)"
+    },
+    {
+      "file": "feitian-fido-ea-root-us.pem",
+      "vendor": "Feitian",
+      "subject": "CN=Feitian FIDO EA Root,O=Feitian Technologies,C=US",
+      "sha256": "cc7dd421c2c559c30279bd9b56a90fb644377d370cfdeb6f9cd488466e4425b9",
+      "not_after": "2052-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 2bff89f2-323a-48fc-b7c8-9ff7fe87c07e (Feitian BioPass FIDO2 Pro (Enterprise Profile))"
+    },
+    {
+      "file": "feitian-fido-root-ca-us.pem",
+      "vendor": "Feitian",
+      "subject": "CN=Feitian FIDO Root CA,O=Feitian Technologies,C=US",
+      "sha256": "d6358e8e4547793345fd98c4d1f768183cc847499506ebd736634beff4793ca2",
+      "not_after": "2052-06-07T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 2bff89f2-323a-48fc-b7c8-9ff7fe87c07e (Feitian BioPass FIDO2 Pro (Enterprise Profile))"
+    },
+    {
+      "file": "yubico-2023-fido-preview-ca.pem",
+      "vendor": "Yubico",
+      "subject": "CN=Yubico 2023 FIDO Preview CA",
+      "sha256": "e77ac5884512d5ac7860d5853a367021fc1dac8faeca918715d675f7abf571d9",
+      "not_after": "2024-12-31T11:32:41Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 2772ce93-eb4b-4090-8b73-330f48477d73 (Security Key NFC by Yubico - Enterprise Edition Preview)"
+    }
+  ],
+  "intermediates": [
+    {
+      "file": "feitian-fido-ca-04.pem",
+      "vendor": "Feitian",
+      "subject": "CN=Feitian FIDO CA 04,O=Feitian Technologies,C=US",
+      "sha256": "196f98300ebe607fa45eeca5925cc61b5f6450a2da0330bf617335aa84820250",
+      "issuer_sha256": "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+      "not_after": "2038-05-19T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID ee041bce-25e5-4cdb-8f86-897fd6418464 (Feitian ePass FIDO2-NFC Authenticator)"
+    },
+    {
+      "file": "yubico-attestation-intermediate-a-1.pem",
+      "vendor": "Yubico",
+      "subject": "CN=Yubico Attestation Intermediate A 1",
+      "sha256": "4698a1d3389c3ec60016c216250f1d0439922832d65142327436376dc2942b55",
+      "issuer_sha256": "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8",
+      "not_after": "9999-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 9eb7eabc-9db5-49a1-b6c3-555a802093f4 (YubiKey 5 Series with NFC KVZR57)"
+    },
+    {
+      "file": "yubico-fido-attestation-a-1.pem",
+      "vendor": "Yubico",
+      "subject": "CN=Yubico FIDO Attestation A 1",
+      "sha256": "4ebabc9cbc964f722c985f3784d057e9ef5dcf454dcb4f767fccca58cf16a4e8",
+      "issuer_sha256": "4698a1d3389c3ec60016c216250f1d0439922832d65142327436376dc2942b55",
+      "not_after": "9999-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 9eb7eabc-9db5-49a1-b6c3-555a802093f4 (YubiKey 5 Series with NFC KVZR57)"
+    },
+    {
+      "file": "feitian-fido-ca-02.pem",
+      "vendor": "Feitian",
+      "subject": "CN=Feitian FIDO CA 02,O=Feitian Technologies,C=US",
+      "sha256": "6da156abcee27f693f2177fe218e485da59817788ed3acad89d7433daf6bb7d6",
+      "issuer_sha256": "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+      "not_after": "2038-05-19T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 8c97a730-3f7b-41a6-87d6-1e9b62bda6f0 (FT-JCOS FIDO Fingerprint Card)"
+    },
+    {
+      "file": "titan-security-key-signing.pem",
+      "vendor": "Google",
+      "subject": "CN=Titan Security Key Signing,OU=Authenticator Attestation,O=Google,C=US",
+      "sha256": "918a618c220cfdaeda51ea4eae0eb5dea106deef721882a82e5df5a9b04728e7",
+      "issuer_sha256": "198493807e92540a44a9e1cc9cb0634e27ac68eb37a442da8af9cf60f99e70a6",
+      "not_after": "2121-12-02T15:26:31Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 42b4fb4a-2866-43b2-9bf7-6c6669c2e5d3 (Google Titan Security Key v2)"
+    },
+    {
+      "file": "feitian-fido-ca-02-us.pem",
+      "vendor": "Feitian",
+      "subject": "CN=FEITIAN FIDO CA 02,O=Feitian Technologies,C=US",
+      "sha256": "9c3fab00f8c7deebe66afdba08a8757e1d8feeb4ba48f3d1c695a7ba7ff5c493",
+      "issuer_sha256": "1d0e48061d16ad771c76a4a2a4d856a497aa71578e1e9b3a309d1c0d6f68f7ba",
+      "not_after": "2100-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 78ba3993-d784-4f44-8d6e-cc0a8ad5230e (Feitian ePass FIDO-NFC(CTAP2.1, CTAP2.0, U2F))"
+    },
+    {
+      "file": "feitian-fido-ca-06.pem",
+      "vendor": "Feitian",
+      "subject": "CN=FEITIAN FIDO CA 06,O=Feitian Technologies,C=US",
+      "sha256": "b65701540ac6014f15b343f78724c3300af9fb95f089f8dc009e7a018bb766b2",
+      "issuer_sha256": "1d0e48061d16ad771c76a4a2a4d856a497aa71578e1e9b3a309d1c0d6f68f7ba",
+      "not_after": "2100-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 12ded745-4bed-47d4-abaa-e713f51d6393 (Feitian AllinOne FIDO2 Authenticator)"
+    },
+    {
+      "file": "feitian-fido-ca-2304.pem",
+      "vendor": "Feitian",
+      "subject": "CN=FEITIAN FIDO CA 2304,O=Feitian Technologies,C=US",
+      "sha256": "bc085b03da5a135707c7dce1df4b69decef9697c6e39f4339bb5e460c41bbf88",
+      "issuer_sha256": "1d0e48061d16ad771c76a4a2a4d856a497aa71578e1e9b3a309d1c0d6f68f7ba",
+      "not_after": "2100-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 238ab2f5-b57f-4917-b3c6-3d3c6c0c350f (FEITIAN FT-JCOS BioCard)"
+    },
+    {
+      "file": "yubico-attestation-intermediate-b-1.pem",
+      "vendor": "Yubico",
+      "subject": "CN=Yubico Attestation Intermediate B 1",
+      "sha256": "d4cc3f456fdaf4e7812a21aab1dfe9d8e27d24e2fd2d6f21c9940109f0daa754",
+      "issuer_sha256": "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8",
+      "not_after": "9999-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 9eb7eabc-9db5-49a1-b6c3-555a802093f4 (YubiKey 5 Series with NFC KVZR57)"
+    },
+    {
+      "file": "feitian-ea-ca-02.pem",
+      "vendor": "Feitian",
+      "subject": "CN=FEITIAN EA CA 02,O=Feitian Technologies,C=US",
+      "sha256": "f69133c148261664746d706bdddb5edd31684640a85c8c57140b264c0e2e1252",
+      "issuer_sha256": "3b0e51e8199d3d4a598860967e68315e1f3c3f4d1cc78a0f993d5a0dc2c39dc0",
+      "not_after": "2100-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 39589099-9a75-49fc-afaa-801ca211c62a (Feitian ePass FIDO-NFC (Enterprise Profile) (CTAP2.1, CTAP2.0, U2F))"
+    },
+    {
+      "file": "yubico-fido-attestation-b2-1.pem",
+      "vendor": "Yubico",
+      "subject": "CN=Yubico FIDO Attestation B2 1",
+      "sha256": "3c6fe819adbd80afe75dc90af7bba34c95b2b7ac64384816e033f63b7c93848b",
+      "issuer_sha256": "d4cc3f456fdaf4e7812a21aab1dfe9d8e27d24e2fd2d6f21c9940109f0daa754",
+      "not_after": "9999-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 9eb7eabc-9db5-49a1-b6c3-555a802093f4 (YubiKey 5 Series with NFC KVZR57)"
+    },
+    {
+      "file": "yubico-fido-attestation-b-1.pem",
+      "vendor": "Yubico",
+      "subject": "CN=Yubico FIDO Attestation B 1",
+      "sha256": "4eadda86ff62cff987e111a07910d8554de42f71d5d6da7744610e09012dd319",
+      "issuer_sha256": "d4cc3f456fdaf4e7812a21aab1dfe9d8e27d24e2fd2d6f21c9940109f0daa754",
+      "not_after": "9999-12-31T23:59:59Z",
+      "source_url": "https://mds3.fidoalliance.org/",
+      "retrieved": "2026-09-16",
+      "cross_checked_against": "FIDO MDS3 blob no. 282 (mds3.fidoalliance.org), attestationRootCertificates of AAGUID 9eb7eabc-9db5-49a1-b6c3-555a802093f4 (YubiKey 5 Series with NFC KVZR57)"
     }
   ]
 }

@@ -66,11 +66,19 @@ func isSelfSigned(cert *x509.Certificate) bool {
 
 // verifyChain implements algorithm step 8: it builds an intermediate pool
 // from x5c[1:] (skipping any self-signed certificate found there, which is
-// never a trust anchor in this package's model), then verifies leaf against
-// the bundled trust store at opts.At. It returns the verified chain
-// (leaf-to-root) or a policy reason code.
-func verifyChain(leaf *x509.Certificate, x5c [][]byte, trust *trustStore, at time.Time) ([]*x509.Certificate, string) {
+// never a trust anchor in this package's model) plus the trust store's own
+// bundled intermediates (MDS-listed non-self-signed certificates that sit
+// between a vendor root and a leaf, e.g. "Titan Security Key Signing" or
+// Yubico's Attestation Intermediate/A/B certs; never trust anchors
+// themselves), then verifies leaf against the bundled trust store at
+// opts.At. leaf.Verify can return more than one valid chain, for example
+// when an intermediate is cross-signed or two bundled roots share a
+// subject, so verifyChain returns every verified chain (each leaf-to-root)
+// rather than picking one: the caller decides which anchor to trust (see
+// step 9 in classify.go).
+func verifyChain(leaf *x509.Certificate, x5c [][]byte, trust *trustStore, at time.Time) ([][]*x509.Certificate, string) {
 	intermediates := x509.NewCertPool()
+	trust.addIntermediatesTo(intermediates)
 	for _, der := range x5c[1:] {
 		cert, err := x509.ParseCertificate(der)
 		if err != nil {
@@ -99,5 +107,5 @@ func verifyChain(leaf *x509.Certificate, x5c [][]byte, trust *trustStore, at tim
 		return nil, reasonChainUntrusted
 	}
 
-	return chains[0], ""
+	return chains, ""
 }

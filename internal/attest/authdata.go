@@ -69,13 +69,24 @@ func parseAuthData(raw []byte) (authData, error) {
 	ad.CredentialID = rest[:credIDLen:credIDLen]
 	rest = rest[credIDLen:]
 
-	// Exactly one CBOR item: the credential's COSE public key.
-	var coseKey cbor.RawMessage
-	tail, err := itemDecMode.UnmarshalFirst(rest, &coseKey)
+	// Exactly one CBOR item: the credential's COSE public key. It is
+	// decoded strictly as a CBOR map (itemDecMode rejects duplicate keys
+	// and indefinite length), not merely captured as an opaque
+	// cbor.RawMessage: unmarshaling into RawMessage only checks
+	// well-formedness of the outer item and never interprets it as a map,
+	// so it would silently accept a duplicate-key map, a non-map item
+	// (e.g. a bare integer or byte string), or anything else well-formed.
+	// A COSE key with duplicate labels is a parser differential waiting to
+	// happen: this package and whatever later verifies an assertion
+	// against Result.CredentialKey (STET-10) must agree on which value
+	// -2/-3 etc. resolve to. The exact raw bytes are still what's
+	// returned, computed from how many bytes decoding the map consumed.
+	var coseKeyMap map[int]cbor.RawMessage
+	tail, err := itemDecMode.UnmarshalFirst(rest, &coseKeyMap)
 	if err != nil {
 		return authData{}, fmt.Errorf("attest: authData: decoding COSE key: %w", err)
 	}
-	ad.COSEKey = []byte(coseKey)
+	ad.COSEKey = rest[:len(rest)-len(tail)]
 	rest = tail
 
 	if ad.Flags&flagED != 0 {

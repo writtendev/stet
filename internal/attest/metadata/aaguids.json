@@ -1,58 +1,1299 @@
 {
   "version": 1,
   "source": {
+    "jwt_verified_to": "GlobalSign Root R3 (sha256 cb:b5:22:d7:b7:f1:27:ad:6a:01:13:86:5b:df:1c:d4:10:2e:7d:07:59:af:63:5a:7c:f4:72:0d:c9:63:c5:3b, fetched from http://secure.globalsign.com/cacert/root-r3.crt)",
     "mds3_blob_no": 282,
     "next_update": "2026-10-01",
     "retrieved": "2026-09-16",
-    "url": "https://mds3.fidoalliance.org/",
-    "jwt_verified_to": "GlobalSign Root R3 (sha256 cb:b5:22:d7:b7:f1:27:ad:6a:01:13:86:5b:df:1c:d4:10:2e:7d:07:59:af:63:5a:7c:f4:72:0d:c9:63:c5:3b, fetched from http://secure.globalsign.com/cacert/root-r3.crt)"
+    "url": "https://mds3.fidoalliance.org/"
   },
   "entries": [
     {
-      "aaguid": "6d44ba9b-f6ec-2e49-b930-0c8fe920cb73",
+      "aaguid": "03012cb7-4fb2-42e7-9e8d-a81f10e2a5e9",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with Lightning (Consumer Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "0a357157-9b18-4c8a-920e-d156e972b2f8",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series (Consumer Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "0bb43545-fd2c-4185-87dd-feb0b2916ace",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico - Enterprise Edition",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "0ebd9f2c-f685-441c-8c3e-a02a234a840a",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC Enhanced PIN (Consumer Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "0f083f18-4105-43a8-ad69-24e812e38141",
+      "vendor": "Yubico",
+      "description": "Security Key Series with NFC (Consumer Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "12755c32-8ad1-46eb-881c-e0b38d848b09",
+      "vendor": "Feitian",
+      "description": "Feitian ePass FIDO Authenticator (CTAP2.1, CTAP2.0, U2F)",
+      "root_sha256": [
+        "2b7f7417734ad972791ac23a53c596ff67d98c02d391c09ff1c128f097d9f8cc",
+        "cc7dd421c2c559c30279bd9b56a90fb644377d370cfdeb6f9cd488466e4425b9",
+        "d6358e8e4547793345fd98c4d1f768183cc847499506ebd736634beff4793ca2"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "12ded745-4bed-47d4-abaa-e713f51d6393",
+      "vendor": "Feitian",
+      "description": "Feitian AllinOne FIDO2 Authenticator",
+      "root_sha256": [
+        "1d0e48061d16ad771c76a4a2a4d856a497aa71578e1e9b3a309d1c0d6f68f7ba",
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a",
+        "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6",
+        "cc7dd421c2c559c30279bd9b56a90fb644377d370cfdeb6f9cd488466e4425b9",
+        "d6358e8e4547793345fd98c4d1f768183cc847499506ebd736634beff4793ca2"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "149a2021-8ef6-4133-96b8-81f8d5b7f1f5",
       "vendor": "Yubico",
       "description": "Security Key by Yubico with NFC",
-      "root_sha256": ["0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"],
-      "uv_methods": ["presence_internal", "passcode_external"]
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
     },
     {
-      "aaguid": "c5ef55ff-ad9a-4b9f-b580-adebafe026d0",
+      "aaguid": "19083c3d-8383-4b18-bc03-8f1c9ab2fd1b",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "1ac71f64-468d-4fe0-bef1-0e5f2f551f18",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC (Enterprise Profile)",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "20ac7a17-c814-4833-93fe-539f0d5e3389",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series (Enterprise Profile)",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "234cd403-35a2-4cc2-8015-77ea280c77f5",
+      "vendor": "Feitian",
+      "description": "Feitian ePass FIDO2-NFC Series (CTAP2.1, CTAP2.0, U2F)",
+      "root_sha256": [
+        "2b7f7417734ad972791ac23a53c596ff67d98c02d391c09ff1c128f097d9f8cc",
+        "cc7dd421c2c559c30279bd9b56a90fb644377d370cfdeb6f9cd488466e4425b9",
+        "d6358e8e4547793345fd98c4d1f768183cc847499506ebd736634beff4793ca2"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "238ab2f5-b57f-4917-b3c6-3d3c6c0c350f",
+      "vendor": "Feitian",
+      "description": "FEITIAN FT-JCOS BioCard",
+      "root_sha256": [
+        "1d0e48061d16ad771c76a4a2a4d856a497aa71578e1e9b3a309d1c0d6f68f7ba"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "24083bcb-3034-4867-99de-a3b52e1d426a",
+      "vendor": "Yubico",
+      "description": "Enterprise Security Key Series with NFC (Consumer Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "24673149-6c86-42e7-98d9-433fb5b73296",
       "vendor": "Yubico",
       "description": "YubiKey 5 Series with Lightning",
-      "root_sha256": ["0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"],
-      "uv_methods": ["presence_internal", "passcode_internal"]
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
     },
     {
-      "aaguid": "90636e1f-ef82-43bf-bdcf-5255f139d12f",
+      "aaguid": "260e3021-482d-442d-838c-7edfbe153b7e",
+      "vendor": "Feitian",
+      "description": "Feitian ePass FIDO2-NFC Plus Authenticator",
+      "root_sha256": [
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a",
+        "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "2772ce93-eb4b-4090-8b73-330f48477d73",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico - Enterprise Edition Preview",
+      "root_sha256": [
+        "e77ac5884512d5ac7860d5853a367021fc1dac8faeca918715d675f7abf571d9"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "2bff89f2-323a-48fc-b7c8-9ff7fe87c07e",
+      "vendor": "Feitian",
+      "description": "Feitian BioPass FIDO2 Pro (Enterprise Profile)",
+      "root_sha256": [
+        "2b7f7417734ad972791ac23a53c596ff67d98c02d391c09ff1c128f097d9f8cc",
+        "cc7dd421c2c559c30279bd9b56a90fb644377d370cfdeb6f9cd488466e4425b9",
+        "d6358e8e4547793345fd98c4d1f768183cc847499506ebd736634beff4793ca2"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "2c0df832-92de-4be1-8412-88a8f074df4a",
+      "vendor": "Feitian",
+      "description": "Feitian FIDO Smart Card",
+      "root_sha256": [
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a",
+        "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "2fc0579f-8113-47ea-b116-bb5a8db9202a",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "3124e301-f14e-4e38-876d-fbeeb090e7bf",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with Lightning Preview",
+      "root_sha256": [
+        "e77ac5884512d5ac7860d5853a367021fc1dac8faeca918715d675f7abf571d9"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "34744913-4f57-4e6e-a527-e9ec3c4b94e6",
       "vendor": "Yubico",
       "description": "YubiKey Bio Series - Multi-protocol Edition",
-      "root_sha256": ["35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"],
-      "uv_methods": ["fingerprint_internal", "presence_internal", "passcode_external"]
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
     },
     {
-      "aaguid": "fcc0118f-cd45-435b-8da1-9782b2da0715",
+      "aaguid": "34f5766d-1536-4a24-9033-0e294e510fb0",
       "vendor": "Yubico",
-      "description": "YubiKey 5 FIPS Series with NFC",
-      "root_sha256": ["62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"],
-      "uv_methods": ["presence_internal", "passcode_external"]
+      "description": "YubiKey 5 Series with NFC Preview",
+      "root_sha256": [
+        "5d8b90f1d77433e3c2bf3afcfa923c984eed626b727df06d4d17e06b1eac17b7",
+        "e77ac5884512d5ac7860d5853a367021fc1dac8faeca918715d675f7abf571d9"
+      ],
+      "uv_methods": [
+        "all",
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "39589099-9a75-49fc-afaa-801ca211c62a",
+      "vendor": "Feitian",
+      "description": "Feitian ePass FIDO-NFC (Enterprise Profile) (CTAP2.1, CTAP2.0, U2F)",
+      "root_sha256": [
+        "3b0e51e8199d3d4a598860967e68315e1f3c3f4d1cc78a0f993d5a0dc2c39dc0",
+        "cc7dd421c2c559c30279bd9b56a90fb644377d370cfdeb6f9cd488466e4425b9"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "3a662962-c6d4-4023-bebb-98ae92e78e20",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with Lightning (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "3aa78eb1-ddd8-46a8-a821-8f8ec57a7bd5",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 CCN Series with NFC",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "3b24bf49-1d45-4484-a917-13175df0867b",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with Lightning (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "3e22415d-7fdf-4ea4-8a0c-dd60c4249b9d",
+      "vendor": "Feitian",
+      "description": "Feitian iePass FIDO Authenticator",
+      "root_sha256": [
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a",
+        "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "3ec9c8d3-a5a7-415b-a7b5-f1d606368d3f",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 CCN Series with NFC (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "41e39911-c669-4811-b860-c6ad0b411b96",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
     },
     {
       "aaguid": "42b4fb4a-2866-43b2-9bf7-6c6669c2e5d3",
       "vendor": "Google",
       "description": "Google Titan Security Key v2",
-      "root_sha256": ["198493807e92540a44a9e1cc9cb0634e27ac68eb37a442da8af9cf60f99e70a6"],
-      "uv_methods": ["presence_internal", "passcode_external"]
+      "root_sha256": [
+        "198493807e92540a44a9e1cc9cb0634e27ac68eb37a442da8af9cf60f99e70a6"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "42df17de-06ba-4177-a2bb-6701be1380d6",
+      "vendor": "Feitian",
+      "description": "Feitian BioPass FIDO2 Plus Authenticator",
+      "root_sha256": [
+        "2b7f7417734ad972791ac23a53c596ff67d98c02d391c09ff1c128f097d9f8cc",
+        "cc7dd421c2c559c30279bd9b56a90fb644377d370cfdeb6f9cd488466e4425b9",
+        "d6358e8e4547793345fd98c4d1f768183cc847499506ebd736634beff4793ca2"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "4599062e-6926-4fe7-9566-9e8fb1aedaa0",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "47ab2fb4-66ac-4184-9ae1-86be814012d5",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico - Enterprise Edition",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "4c0cf95d-2f40-43b5-ba42-4c83a11c04ba",
+      "vendor": "Feitian",
+      "description": "Feitian BioPass FIDO2 Pro Authenticator",
+      "root_sha256": [
+        "2b7f7417734ad972791ac23a53c596ff67d98c02d391c09ff1c128f097d9f8cc",
+        "d6358e8e4547793345fd98c4d1f768183cc847499506ebd736634beff4793ca2"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "4fc84f16-2545-4e53-b8fc-7bf4d7282a10",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 CCN Series with NFC (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "524de2de-982f-49b4-a769-2b5e3b73ad79",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "57f7de54-c807-4eab-b1c6-1c9be7984e92",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "58276709-bb4b-4bb3-baf1-60eea99282a7",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - Multi-protocol Edition 1VDJSN",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad",
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "5b0e46ba-db02-44ac-b979-ca9b84f5e335",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with Lightning Preview",
+      "root_sha256": [
+        "e77ac5884512d5ac7860d5853a367021fc1dac8faeca918715d675f7abf571d9"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "62e54e98-c209-4df3-b692-de71bb6a8528",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with NFC Preview",
+      "root_sha256": [
+        "e77ac5884512d5ac7860d5853a367021fc1dac8faeca918715d675f7abf571d9"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "662ef48a-95e2-4aaa-a6c1-5b9c40375824",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC - Enhanced PIN",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "6ab56fad-881f-4a43-acb2-0be065924522",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "6d44ba9b-f6ec-2e49-b930-0c8fe920cb73",
+      "vendor": "Yubico",
+      "description": "Security Key by Yubico with NFC",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "6ec5cff2-a0f9-4169-945b-f33b563f7b99",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - Multi-protocol Edition (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "72c6b72d-8512-4c66-8359-9d3d10d9222f",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico - Enterprise Edition (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "73bb0cd4-e502-49b8-9c6f-b59445bf720b",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "7409272d-1ff9-4e10-9fc9-ac0019c124fd",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - FIDO Edition",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "760eda36-00aa-4d29-855b-4012a182cdeb",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico Preview",
+      "root_sha256": [
+        "e77ac5884512d5ac7860d5853a367021fc1dac8faeca918715d675f7abf571d9"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "77010bd7-212a-4fc9-b236-d2ca5e9d4084",
+      "vendor": "Feitian",
+      "description": "Feitian BioPass FIDO2 Authenticator",
+      "root_sha256": [
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a",
+        "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "78ba3993-d784-4f44-8d6e-cc0a8ad5230e",
+      "vendor": "Feitian",
+      "description": "Feitian ePass FIDO-NFC(CTAP2.1, CTAP2.0, U2F)",
+      "root_sha256": [
+        "1d0e48061d16ad771c76a4a2a4d856a497aa71578e1e9b3a309d1c0d6f68f7ba",
+        "d6358e8e4547793345fd98c4d1f768183cc847499506ebd736634beff4793ca2"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "79f3c8ba-9e35-484b-8f47-53a5a0f5c630",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with NFC (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "7b96457d-e3cd-432b-9ceb-c9fdd7ef7432",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with Lightning",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "7d1351a6-e097-4852-b8bf-c9ac5c9ce4a3",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - Multi-protocol Edition",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "7dab85a5-d16d-4eaf-a7ef-4c1385b151c5",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC (Consumer Profile) KVZR57-2",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "833b721a-ff5f-4d00-bb2e-bdda3ec01e29",
+      "vendor": "Feitian",
+      "description": "Feitian ePass FIDO2 Authenticator",
+      "root_sha256": [
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a",
+        "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "83c47309-aabb-4108-8470-8be838b573cb",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - FIDO Edition (Enterprise Profile)",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "85203421-48f9-4355-9bc8-8a53846e5083",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with Lightning",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "8c39ee86-7f9a-4a95-9ba3-f6b097e5c2ee",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - FIDO Edition (Enterprise Profile)",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "8c97a730-3f7b-41a6-87d6-1e9b62bda6f0",
+      "vendor": "Feitian",
+      "description": "FT-JCOS FIDO Fingerprint Card",
+      "root_sha256": [
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a",
+        "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "905b4cb4-ed6f-4da9-92fc-45e0d4e9b5c7",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "90636e1f-ef82-43bf-bdcf-5255f139d12f",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - Multi-protocol Edition",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "97e6a830-c952-4740-95fc-7c78dc97ce47",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - Multi-protocol Edition (Enterprise Profile)",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "9806a2c8-c0da-478e-b4ca-620005d34182",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Multi-protocol Edition (Consumer Profile) 1VDJSN-2",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "9a3f2abd-a73d-439c-9ee7-1b53a857eaa7",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC Enhanced PIN (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "9dd8d593-2213-438a-97f8-d6b813d51c27",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Fido Edition (Consumer Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "9e66c661-e428-452a-a8fb-51f7ed088acf",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with Lightning (RC Preview)",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "9eb7eabc-9db5-49a1-b6c3-555a802093f4",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC KVZR57",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "9ff4cc65-6154-4fff-ba09-9e2af7882ad2",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico - Enterprise Edition (Enterprise Profile)",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "a02140b7-0cbd-42e1-a9b5-a39da2545114",
+      "vendor": "Feitian",
+      "description": "Feitian BioPass FIDO2 Plus (Enterprise Profile)",
+      "root_sha256": [
+        "2b7f7417734ad972791ac23a53c596ff67d98c02d391c09ff1c128f097d9f8cc",
+        "cc7dd421c2c559c30279bd9b56a90fb644377d370cfdeb6f9cd488466e4425b9",
+        "d6358e8e4547793345fd98c4d1f768183cc847499506ebd736634beff4793ca2"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "a02167b9-ae71-4ac7-9a07-06432ebb6f1c",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with Lightning",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "a25342c0-3cdc-4414-8e46-f4807fca511c",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "a4e9fc6d-4cbe-4758-b8ba-37598bb5bbaa",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "ab7d1767-3fa0-4388-b6c4-feef7a844809",
+      "vendor": "Yubico",
+      "description": "Enterprise Security Key Series with NFC (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "ad08c78a-4e41-49b9-86a2-ac15b06899e2",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - FIDO Edition (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "add92433-0d69-4026-8166-29b25bce64e9",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Fido Edition (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "b2c1a50b-dad8-4dc7-ba4d-0ce9597904bc",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC - Enhanced PIN (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "b6ede29c-3772-412c-8a78-539c1f4c62d2",
+      "vendor": "Feitian",
+      "description": "Feitian BioPass FIDO2 Plus Authenticator",
+      "root_sha256": [
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a",
+        "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "b7d3f68e-88a6-471e-9ecf-2df26d041ede",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "b90e7dc1-316e-4fee-a25a-56a666a670fe",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with Lightning (Enterprise Profile)",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "b92c3f9a-c014-4056-887f-140a2501163b",
+      "vendor": "Yubico",
+      "description": "Security Key by Yubico",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "ba0a9266-40d8-4048-9786-d710b5474752",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Multi-protocol Edition (Consumer Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "c1f9a0bc-1dd2-404a-b27f-8e29047a43fd",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with NFC",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "c3479970-e58a-4f70-836f-853bf42fb063",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with Lightning (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "c5ef55ff-ad9a-4b9f-b580-adebafe026d0",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with Lightning",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_internal",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "cb69481e-8ff7-4039-93ec-0a2729a154a8",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "ce6bf97f-9f69-4ba7-9032-97adc6ca5cf1",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with NFC (RC Preview)",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "d2fbd093-ee62-488d-9dad-1e36389f8826",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series (RC Preview)",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "d7781e5d-e353-46aa-afe2-3ca49f13332a",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "d8522d9f-575b-4866-88a9-ba99fa02f35b",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - FIDO Edition",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "dc5e949d-f939-43b3-9877-a85c7186b753",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Multi-protocol Edition (Enterprise Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "dd86a2da-86a0-4cbe-b462-4bd31f57bc6f",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - FIDO Edition",
+      "root_sha256": [
+        "35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"
+      ],
+      "uv_methods": [
+        "fingerprint_internal",
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "e77e3c64-05e3-428b-8824-0cbeb04b829d",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "eb7ef748-cbe0-4b40-b8f6-07bd2d592d35",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 CCN Series with NFC (Consumer Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "ed042a3a-4b22-4455-bb69-a267b652ae7e",
+      "vendor": "Yubico",
+      "description": "Security Key NFC by Yubico - Enterprise Edition",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
     },
     {
       "aaguid": "ee041bce-25e5-4cdb-8f86-897fd6418464",
       "vendor": "Feitian",
       "description": "Feitian ePass FIDO2-NFC Authenticator",
       "root_sha256": [
-        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6",
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a",
         "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
-        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a"
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6"
       ],
-      "uv_methods": ["presence_internal", "passcode_external"]
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "ee882879-721c-4913-9775-3dfcce97072a",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "f4ce5fc0-57d3-46f5-a736-efb7d5bc63b5",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC (Consumer Profile)",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "f8a011f3-8c0a-4d15-8006-17111f9edc7d",
+      "vendor": "Yubico",
+      "description": "Security Key by Yubico",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "fa2b99dc-9e39-4257-8f92-4a30d23c4118",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with NFC",
+      "root_sha256": [
+        "0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "fcc0118f-cd45-435b-8da1-9782b2da0715",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with NFC",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
+    },
+    {
+      "aaguid": "ff4dac45-ede8-4ec2-aced-cf66103f4335",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series",
+      "root_sha256": [
+        "62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"
+      ],
+      "uv_methods": [
+        "passcode_external",
+        "presence_internal"
+      ]
     }
   ]
 }
