@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,39 @@ type noGHRunner struct{}
 
 func (noGHRunner) Output(ctx context.Context, name string, args ...string) (string, error) {
 	return "", errors.New("gh: not logged in (test stub)")
+}
+
+// tempAuditRepo builds a hermetic git repo with a "main" default branch and
+// a github.com origin remote, independent of the ambient checkout this test
+// binary happens to run inside. This matters because a shallow
+// `actions/checkout` (as CI uses) does not set up refs/remotes/origin/HEAD,
+// so resolving the default branch against the real repo these tests live in
+// would be environment-dependent; auditDeps.dir points audit at this repo
+// instead.
+func tempAuditRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found on PATH")
+	}
+
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	run("init", "--initial-branch=main")
+	run("config", "user.name", "Test User")
+	run("config", "user.email", "test@example.com")
+	run("config", "commit.gpgsign", "false")
+	run("commit", "--allow-empty", "-m", "first commit")
+	run("remote", "add", "origin", "git@github.com:writtendev/stet.git")
+	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	return dir
 }
 
 func executeAuditCmd(deps auditDeps, args ...string) (string, error) {
@@ -57,6 +91,7 @@ func TestAuditJSONShapeWithFakeClient(t *testing.T) {
 	}}
 
 	deps := auditDeps{
+		dir:       tempAuditRepo(t),
 		env:       fakeEnv{"GH_TOKEN": "test-token"},
 		runner:    noGHRunner{},
 		newClient: func(token string) github.Client { return fc },
@@ -104,6 +139,7 @@ func TestAuditOfflineNeverCallsClient(t *testing.T) {
 
 	failing := &github.FailingClient{Fail: func(msg string) { t.Fatal(msg) }}
 	deps := auditDeps{
+		dir:       tempAuditRepo(t),
 		env:       fakeEnv{"GH_TOKEN": "test-token"},
 		runner:    noGHRunner{},
 		newClient: func(token string) github.Client { return failing },
@@ -129,6 +165,7 @@ func TestAuditOfflineSkipsTokenResolutionEntirely(t *testing.T) {
 	// A runner that fails the test if it's ever invoked: --offline must
 	// short-circuit before any token resolution attempt at all.
 	deps := auditDeps{
+		dir:    tempAuditRepo(t),
 		env:    fakeEnv{},
 		runner: failingRunner{fail: func(msg string) { t.Error(msg) }},
 		newClient: func(token string) github.Client {
@@ -170,6 +207,7 @@ func TestAuditHumanOutputContainsHeadline(t *testing.T) {
 	}}
 
 	deps := auditDeps{
+		dir:       tempAuditRepo(t),
 		env:       fakeEnv{"GH_TOKEN": "test-token"},
 		runner:    noGHRunner{},
 		newClient: func(token string) github.Client { return fc },

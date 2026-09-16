@@ -156,6 +156,14 @@ func TestAuditCmd(t *testing.T) {
 	// path) so this test never depends on network access, an ambient
 	// GH_TOKEN, or a `gh` login on the machine running it. audit_test.go
 	// covers the GitHub tier itself against fakes.
+	//
+	// The default branch is still resolved locally even offline, so this
+	// also chdirs into a hermetic repo rather than relying on whatever
+	// checkout this test binary happens to run inside: a shallow
+	// `actions/checkout` (as CI uses) never sets up
+	// refs/remotes/origin/HEAD, which real-repo resolution would need.
+	t.Chdir(tempAuditRepo(t))
+
 	t.Run("human output", func(t *testing.T) {
 		out, err := executeCommand("audit", "--offline")
 		if err != nil {

@@ -29,6 +29,11 @@ type auditFlags struct {
 // fixed clock, and a fake environment without any network access or
 // dependence on the operator's real credentials.
 type auditDeps struct {
+	// dir is the working tree audit reads. Empty means the real process
+	// working directory; tests point it at a hermetic temp repo so they
+	// never depend on the ambient checkout's remote-tracking refs (a
+	// shallow `actions/checkout` does not set refs/remotes/origin/HEAD).
+	dir           string
 	env           github.Env
 	runner        github.Runner
 	newClient     func(token string) github.Client
@@ -98,9 +103,13 @@ func runAudit(cmd *cobra.Command, flags auditFlags, deps auditDeps) error {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	dir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("audit: %w", err)
+	dir := deps.dir
+	if dir == "" {
+		var err error
+		dir, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("audit: %w", err)
+		}
 	}
 
 	repo, err := gitlocal.Open(ctx, dir)
