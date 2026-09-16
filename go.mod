@@ -4,6 +4,7 @@ go 1.25.3
 
 require (
 	github.com/charmbracelet/lipgloss v1.0.0
+	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/spf13/cobra v1.9.1
 	golang.org/x/term v0.32.0
 )
@@ -18,5 +19,6 @@ require (
 	github.com/muesli/termenv v0.15.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 )

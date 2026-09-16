@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "source": {
+    "mds3_blob_no": 282,
+    "next_update": "2026-10-01",
+    "retrieved": "2026-09-16",
+    "url": "https://mds3.fidoalliance.org/",
+    "jwt_verified_to": "GlobalSign Root R3 (sha256 cb:b5:22:d7:b7:f1:27:ad:6a:01:13:86:5b:df:1c:d4:10:2e:7d:07:59:af:63:5a:7c:f4:72:0d:c9:63:c5:3b, fetched from http://secure.globalsign.com/cacert/root-r3.crt)"
+  },
+  "entries": [
+    {
+      "aaguid": "6d44ba9b-f6ec-2e49-b930-0c8fe920cb73",
+      "vendor": "Yubico",
+      "description": "Security Key by Yubico with NFC",
+      "root_sha256": ["0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"],
+      "uv_methods": ["presence_internal", "passcode_external"]
+    },
+    {
+      "aaguid": "c5ef55ff-ad9a-4b9f-b580-adebafe026d0",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 Series with Lightning",
+      "root_sha256": ["0fa1386f80eb8713263ae5c1d84deb455bdf08aea50ab05503cefee82b092d42"],
+      "uv_methods": ["presence_internal", "passcode_internal"]
+    },
+    {
+      "aaguid": "90636e1f-ef82-43bf-bdcf-5255f139d12f",
+      "vendor": "Yubico",
+      "description": "YubiKey Bio Series - Multi-protocol Edition",
+      "root_sha256": ["35f1a54b353bfb711e6d42adbeb76c0e9dead095018e6a94783ba2192fd6faad"],
+      "uv_methods": ["fingerprint_internal", "presence_internal", "passcode_external"]
+    },
+    {
+      "aaguid": "fcc0118f-cd45-435b-8da1-9782b2da0715",
+      "vendor": "Yubico",
+      "description": "YubiKey 5 FIPS Series with NFC",
+      "root_sha256": ["62760c6a6ef91679f454c8902b80fd009825b3f25da90f1fbace2ec6586cd5a8"],
+      "uv_methods": ["presence_internal", "passcode_external"]
+    },
+    {
+      "aaguid": "42b4fb4a-2866-43b2-9bf7-6c6669c2e5d3",
+      "vendor": "Google",
+      "description": "Google Titan Security Key v2",
+      "root_sha256": ["198493807e92540a44a9e1cc9cb0634e27ac68eb37a442da8af9cf60f99e70a6"],
+      "uv_methods": ["presence_internal", "passcode_external"]
+    },
+    {
+      "aaguid": "ee041bce-25e5-4cdb-8f86-897fd6418464",
+      "vendor": "Feitian",
+      "description": "Feitian ePass FIDO2-NFC Authenticator",
+      "root_sha256": [
+        "925f79f4350ac09645dc71adc611badc248e837625246f11558edb3d5ee615f6",
+        "492bfc9bb0c655f695a9447b445ec4703cd92d63fd910b5043ba3b0a3964506d",
+        "2c86cb00e189ca0431d33867bbb145cc3abbd4900508e3e26e92e35f2e22877a"
+      ],
+      "uv_methods": ["presence_internal", "passcode_external"]
+    }
+  ]
+}
