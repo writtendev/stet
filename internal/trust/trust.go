@@ -3,13 +3,20 @@
 // user) has chosen to trust, plus revocations. It is fully offline — the
 // log is a local file, and lookups never leave the machine.
 //
-// The log itself (Log) is a dumb append-only writer: Add and Revoke each
-// write one record and fsync, with no knowledge of the file's cumulative
-// state. Loading the file (Load) replays every record in order and is
-// where inconsistency is caught: a duplicate add, an add of a
-// previously-revoked credential, a revoke of an unknown credential, or an
-// unrecognized op are all load errors. There is no delete or rewrite API;
-// a mistaken add is corrected by revoking it, never by editing the file.
+// Add and Revoke each write one record and fsync, but they are not dumb
+// appenders: before writing, each checks the record against the log's
+// current cumulative state (tracked in memory, seeded from Load when the
+// log is Open'd) and refuses to write anything Load would later reject.
+// That keeps an invalid record from ever reaching disk, so one bad
+// enrollment or typo'd revoke can't poison every future Load with no
+// append-only way to recover. Loading the file (Load) independently
+// replays every record in order and is where inconsistency is caught as
+// defense in depth: a duplicate add, an add of a previously-revoked
+// credential (by credential ID, or by the same underlying public key
+// reappearing under a new credential ID), a revoke of an unknown
+// credential, or an unrecognized op are all load errors. There is no
+// delete or rewrite API; a mistaken add is corrected by revoking it, never
+// by editing the file.
 //
 // Entries do not carry a hardware attestation trust class (e.g. "YubiKey
 // series 5" vs "unknown"); that classification is STET-6's decision, made
@@ -18,6 +25,7 @@ package trust
 
 import (
 	"bufio"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -126,6 +134,10 @@ type Log struct {
 	mu    sync.Mutex
 	f     *os.File
 	clock func() time.Time
+	// set mirrors the log's cumulative on-disk state (seeded from Load at
+	// Open time and advanced after each successful append), so Add and
+	// Revoke can validate a record before it is written.
+	set *Set
 }
 
 // Option configures a Log opened with Open.
@@ -140,7 +152,10 @@ func WithClock(clock func() time.Time) Option {
 
 // Open opens (creating if necessary) the trust log at path for appending.
 // The file and its parent directory are created with owner-only
-// permissions.
+// permissions. Open also loads the log's existing contents (as Load
+// would) to seed the in-memory state Add and Revoke validate against; an
+// already-corrupt log fails closed here rather than accepting more writes
+// on top of it.
 func Open(path string, opts ...Option) (*Log, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("trust: create %s: %w", filepath.Dir(path), err)
@@ -150,7 +165,13 @@ func Open(path string, opts ...Option) (*Log, error) {
 		return nil, fmt.Errorf("trust: open %s: %w", path, err)
 	}
 
-	l := &Log{f: f, clock: time.Now}
+	set, err := Load(path)
+	if err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("trust: load existing log %s: %w", path, err)
+	}
+
+	l := &Log{f: f, clock: time.Now, set: set}
 	for _, opt := range opts {
 		opt(l)
 	}
@@ -162,11 +183,16 @@ func (l *Log) Close() error {
 	return l.f.Close()
 }
 
-// Add appends an "add" record for e. Add does not check the log's
-// cumulative state (that is Load's job): appending a duplicate or
-// previously-revoked credential ID succeeds here and surfaces as a Load
-// error.
+// Add appends an "add" record for e. Before writing, Add checks e against
+// the log's current cumulative state (the same checks Load applies) and
+// refuses to write a record that state would reject — a duplicate
+// credential ID, a credential ID or public key that was previously
+// revoked, an unrecognized algorithm, an unparseable public key, or an
+// empty credential ID. That way an invalid record never reaches disk.
 func (l *Log) Add(e Entry) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	rec := addRecord{
 		Op:           "add",
 		CredentialID: base64.RawURLEncoding.EncodeToString(e.CredentialID),
@@ -177,26 +203,45 @@ func (l *Log) Add(e Entry) error {
 		Label:        e.Label,
 		At:           l.clock().UTC().Format(time.RFC3339),
 	}
-	return l.append(rec)
+
+	if _, _, err := l.set.checkAdd(rec); err != nil {
+		return fmt.Errorf("trust: %w", err)
+	}
+	if err := l.appendLocked(rec); err != nil {
+		return err
+	}
+	// checkAdd already validated rec against l.set above, so this cannot
+	// fail; applyAdd just commits the same result to the in-memory state.
+	return l.set.applyAdd(rec)
 }
 
-// Revoke appends a "revoke" record for credentialID. Like Add, it does not
-// check the log's cumulative state: revoking an unknown credential ID
-// succeeds here and surfaces as a Load error.
+// Revoke appends a "revoke" record for credentialID. Like Add, it checks
+// the log's current cumulative state first and refuses to write a revoke
+// of an unknown or already-revoked credential ID, so an invalid record
+// never reaches disk.
 func (l *Log) Revoke(credentialID []byte, reason string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	rec := revokeRecord{
 		Op:           "revoke",
 		CredentialID: base64.RawURLEncoding.EncodeToString(credentialID),
 		Reason:       reason,
 		At:           l.clock().UTC().Format(time.RFC3339),
 	}
-	return l.append(rec)
+
+	if _, err := l.set.checkRevoke(rec); err != nil {
+		return fmt.Errorf("trust: %w", err)
+	}
+	if err := l.appendLocked(rec); err != nil {
+		return err
+	}
+	return l.set.applyRevoke(rec)
 }
 
-func (l *Log) append(rec any) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
+// appendLocked marshals and writes rec, fsyncing before it returns. Callers
+// must hold l.mu.
+func (l *Log) appendLocked(rec any) error {
 	b, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("trust: marshal record: %w", err)
@@ -218,6 +263,11 @@ type storedKey struct {
 // Set is an in-memory snapshot of a trust log, as produced by Load.
 type Set struct {
 	keys map[string]*storedKey
+	// byPubKey indexes the same storedKey values by their canonical PKIX
+	// DER public key bytes, so an add can be checked against every
+	// previously-seen key regardless of which credential ID it was filed
+	// under.
+	byPubKey map[string]*storedKey
 }
 
 // Lookup reports credentialID's trusted key and trust state. A Key is only
@@ -254,7 +304,7 @@ func (s *Set) VerifyAssertion(rpID string, a *fido.Assertion, opts fido.VerifyOp
 // previously-revoked credential, or a revoke of an unknown or
 // already-revoked credential.
 func Load(path string) (*Set, error) {
-	set := &Set{keys: make(map[string]*storedKey)}
+	set := &Set{keys: make(map[string]*storedKey), byPubKey: make(map[string]*storedKey)}
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -309,72 +359,137 @@ func Load(path string) (*Set, error) {
 	return set, nil
 }
 
+// applyAdd validates rec against s (see checkAdd) and, on success, commits
+// it: the new key is indexed both by credential ID and by its canonical
+// public key.
 func (s *Set) applyAdd(rec addRecord) error {
+	key, canon, err := s.checkAdd(rec)
+	if err != nil {
+		return err
+	}
+	sk := &storedKey{key: key, state: StateActive}
+	s.keys[string(key.CredentialID)] = sk
+	s.byPubKey[canon] = sk
+	return nil
+}
+
+// checkAdd validates rec against s's current state without mutating s. On
+// success it returns the decoded Key and the canonical PKIX DER form of
+// its public key (as used to index Set.byPubKey); on failure the returned
+// values are meaningless.
+//
+// Checks, in order: the credential ID decodes and is non-empty and not
+// already active or revoked; the public key decodes, parses as a valid
+// PKIX public key, and does not match any key already active or revoked
+// under a different credential ID (revocation binds to the key, not just
+// the ID it was filed under); the algorithm is one this package
+// recognizes; the AAGUID is exactly 16 bytes; and the timestamp parses.
+func (s *Set) checkAdd(rec addRecord) (Key, string, error) {
 	id, err := base64.RawURLEncoding.DecodeString(rec.CredentialID)
 	if err != nil {
-		return fmt.Errorf("decode credential_id: %w", err)
+		return Key{}, "", fmt.Errorf("decode credential_id: %w", err)
 	}
-	k := string(id)
+	if len(id) == 0 {
+		return Key{}, "", fmt.Errorf("credential_id must not be empty")
+	}
 
-	if existing, ok := s.keys[k]; ok {
+	if existing, ok := s.keys[string(id)]; ok {
 		if existing.state == StateRevoked {
-			return fmt.Errorf("credential %s was revoked and cannot be re-added", rec.CredentialID)
+			return Key{}, "", fmt.Errorf("credential %s was revoked and cannot be re-added", rec.CredentialID)
 		}
-		return fmt.Errorf("duplicate add for credential %s", rec.CredentialID)
+		return Key{}, "", fmt.Errorf("duplicate add for credential %s", rec.CredentialID)
 	}
 
 	pub, err := base64.StdEncoding.DecodeString(rec.PublicKey)
 	if err != nil {
-		return fmt.Errorf("decode public_key: %w", err)
+		return Key{}, "", fmt.Errorf("decode public_key: %w", err)
 	}
+	canon, err := canonicalPublicKey(pub)
+	if err != nil {
+		return Key{}, "", err
+	}
+	if existing, ok := s.byPubKey[canon]; ok {
+		existingID := base64.RawURLEncoding.EncodeToString(existing.key.CredentialID)
+		if existing.state == StateRevoked {
+			return Key{}, "", fmt.Errorf("public key matches revoked credential %s and cannot be re-added under credential %s", existingID, rec.CredentialID)
+		}
+		return Key{}, "", fmt.Errorf("public key already trusted under credential %s, cannot add again under credential %s", existingID, rec.CredentialID)
+	}
+
 	alg, err := algFromString(rec.Alg)
 	if err != nil {
-		return err
+		return Key{}, "", err
 	}
 	aaguidBytes, err := hex.DecodeString(rec.AAGUID)
 	if err != nil {
-		return fmt.Errorf("decode aaguid: %w", err)
+		return Key{}, "", fmt.Errorf("decode aaguid: %w", err)
 	}
 	if len(aaguidBytes) != 16 {
-		return fmt.Errorf("aaguid must be 16 bytes, got %d", len(aaguidBytes))
+		return Key{}, "", fmt.Errorf("aaguid must be 16 bytes, got %d", len(aaguidBytes))
 	}
 	addedAt, err := time.Parse(time.RFC3339, rec.At)
 	if err != nil {
-		return fmt.Errorf("parse at: %w", err)
+		return Key{}, "", fmt.Errorf("parse at: %w", err)
 	}
 
 	var aaguid [16]byte
 	copy(aaguid[:], aaguidBytes)
 
-	s.keys[k] = &storedKey{
-		key: Key{
-			CredentialID: id,
-			PublicKey:    pub,
-			Algorithm:    alg,
-			RPID:         rec.RPID,
-			AAGUID:       aaguid,
-			Label:        rec.Label,
-			AddedAt:      addedAt,
-		},
-		state: StateActive,
+	return Key{
+		CredentialID: id,
+		PublicKey:    []byte(canon),
+		Algorithm:    alg,
+		RPID:         rec.RPID,
+		AAGUID:       aaguid,
+		Label:        rec.Label,
+		AddedAt:      addedAt,
+	}, canon, nil
+}
+
+// applyRevoke validates rec against s (see checkRevoke) and, on success,
+// flips the matching entry's state to StateRevoked.
+func (s *Set) applyRevoke(rec revokeRecord) error {
+	sk, err := s.checkRevoke(rec)
+	if err != nil {
+		return err
 	}
+	sk.state = StateRevoked
 	return nil
 }
 
-func (s *Set) applyRevoke(rec revokeRecord) error {
+// checkRevoke validates rec against s's current state without mutating s,
+// returning the matching storedKey on success: the credential ID decodes
+// and is currently known and not already revoked.
+func (s *Set) checkRevoke(rec revokeRecord) (*storedKey, error) {
 	id, err := base64.RawURLEncoding.DecodeString(rec.CredentialID)
 	if err != nil {
-		return fmt.Errorf("decode credential_id: %w", err)
+		return nil, fmt.Errorf("decode credential_id: %w", err)
 	}
 	existing, ok := s.keys[string(id)]
 	if !ok {
-		return fmt.Errorf("revoke of unknown credential %s", rec.CredentialID)
+		return nil, fmt.Errorf("revoke of unknown credential %s", rec.CredentialID)
 	}
 	if existing.state == StateRevoked {
-		return fmt.Errorf("duplicate revoke for credential %s", rec.CredentialID)
+		return nil, fmt.Errorf("duplicate revoke for credential %s", rec.CredentialID)
 	}
-	existing.state = StateRevoked
-	return nil
+	return existing, nil
+}
+
+// canonicalPublicKey parses der as a PKIX public key and re-marshals it,
+// returning the canonical encoding as a string suitable for use as a map
+// key. Re-marshaling normalizes any DER encoding variations (e.g.
+// non-minimal integer encodings) that would otherwise let the same key
+// evade the byPubKey index under a byte-for-byte different encoding.
+func canonicalPublicKey(der []byte) (string, error) {
+	pub, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
+		return "", fmt.Errorf("parse public_key: %w", err)
+	}
+	canon, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return "", fmt.Errorf("marshal public_key: %w", err)
+	}
+	return string(canon), nil
 }
 
 func algString(alg fido.COSEAlgorithm) string {

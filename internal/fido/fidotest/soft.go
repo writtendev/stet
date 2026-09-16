@@ -119,6 +119,10 @@ func (s *Soft) MakeCredential(ctx context.Context, devicePath string, req fido.C
 	if alg != fido.ES256 {
 		return nil, fido.ErrUnsupportedAlgorithm
 	}
+	rpID := req.RPID
+	if rpID == "" {
+		rpID = fido.DefaultRPID
+	}
 
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), s.opts.Rand)
 	if err != nil {
@@ -135,7 +139,7 @@ func (s *Soft) MakeCredential(ctx context.Context, devicePath string, req fido.C
 
 	coseKey := encodeCOSEEC2Key(priv.X, priv.Y)
 	flags := flagsByte(s.opts.UserPresent, s.opts.UserVerified, true)
-	authData := buildAuthData(req.RPID, flags, 0, &aaguid, credID, coseKey)
+	authData := buildAuthData(rpID, flags, 0, &aaguid, credID, coseKey)
 
 	pkixKey, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
 	if err != nil {
@@ -181,6 +185,10 @@ func (s *Soft) GetAssertion(ctx context.Context, devicePath string, req fido.Ass
 	if err := s.checkPIN(req.PIN); err != nil {
 		return nil, err
 	}
+	rpID := req.RPID
+	if rpID == "" {
+		rpID = fido.DefaultRPID
+	}
 
 	s.mu.Lock()
 	var priv *ecdsa.PrivateKey
@@ -198,7 +206,7 @@ func (s *Soft) GetAssertion(ctx context.Context, devicePath string, req fido.Ass
 
 	signCount := s.nextSignCount(credID)
 	flags := flagsByte(s.opts.UserPresent, s.opts.UserVerified, false)
-	authData := buildAuthData(req.RPID, flags, signCount, nil, nil, nil)
+	authData := buildAuthData(rpID, flags, signCount, nil, nil, nil)
 
 	signed := make([]byte, 0, len(authData)+len(req.ClientDataHash))
 	signed = append(signed, authData...)

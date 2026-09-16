@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -79,6 +80,10 @@ func (libfido2Authenticator) MakeCredential(ctx context.Context, devicePath stri
 	if alg == 0 {
 		alg = ES256
 	}
+	rpID := req.RPID
+	if rpID == "" {
+		rpID = DefaultRPID
+	}
 
 	dev, err := openDevice(devicePath)
 	if err != nil {
@@ -101,7 +106,7 @@ func (libfido2Authenticator) MakeCredential(ctx context.Context, devicePath stri
 		return nil, mapErr(int(rc))
 	}
 
-	cRPID := C.CString(req.RPID)
+	cRPID := C.CString(rpID)
 	defer C.free(unsafe.Pointer(cRPID))
 	var cRPName *C.char
 	if req.RPName != "" {
@@ -177,6 +182,10 @@ func (libfido2Authenticator) GetAssertion(ctx context.Context, devicePath string
 	if len(req.CredentialIDs) == 0 {
 		return nil, fmt.Errorf("fido2: GetAssertion requires at least one allowed credential ID")
 	}
+	rpID := req.RPID
+	if rpID == "" {
+		rpID = DefaultRPID
+	}
 
 	dev, err := openDevice(devicePath)
 	if err != nil {
@@ -195,7 +204,7 @@ func (libfido2Authenticator) GetAssertion(ctx context.Context, devicePath string
 		return nil, mapErr(int(rc))
 	}
 
-	cRPID := C.CString(req.RPID)
+	cRPID := C.CString(rpID)
 	defer C.free(unsafe.Pointer(cRPID))
 	if rc := C.fido_assert_set_rp(assert, cRPID); rc != C.FIDO_OK {
 		return nil, mapErr(int(rc))
@@ -279,11 +288,29 @@ func closeDevice(dev *C.fido_dev_t) {
 	C.fido_dev_free(&dev)
 }
 
+// cancelRetryInterval is how often runCancelable re-sends
+// CTAPHID_CANCEL while waiting for a cancelled call to return.
+// fido_dev_cancel is a fire-and-forget packet: if fn hasn't yet reached
+// libfido2's blocking read (or the authenticator otherwise missed it), a
+// single cancel is dropped silently. Retrying bounds how long a lost
+// cancel can block the caller.
+const cancelRetryInterval = 50 * time.Millisecond
+
 // runCancelable runs a blocking libfido2 call (fido_dev_make_cred or
 // fido_dev_get_assert) on its own goroutine, so that a cancelled ctx can
 // call fido_dev_cancel and this returns promptly with ErrCancelled instead
 // of blocking until the authenticator times out on its own.
+//
+// It never races a completed ceremony against the cancellation: once fn's
+// result is available on done, that result is always what gets returned,
+// even if ctx was also cancelled around the same time. If ctx is already
+// done before fn is even started, fn is never invoked (and the device is
+// never touched) and ErrCancelled is returned immediately.
 func runCancelable(ctx context.Context, dev *C.fido_dev_t, fn func() C.int) error {
+	if err := ctx.Err(); err != nil {
+		return ErrCancelled
+	}
+
 	done := make(chan C.int, 1)
 	go func() {
 		done <- fn()
@@ -291,15 +318,32 @@ func runCancelable(ctx context.Context, dev *C.fido_dev_t, fn func() C.int) erro
 
 	select {
 	case rc := <-done:
-		if rc != C.FIDO_OK {
-			return mapErr(int(rc))
-		}
-		return nil
+		return resultFromRC(rc)
 	case <-ctx.Done():
-		C.fido_dev_cancel(dev)
-		<-done // let the cancelled call return before we free/close dev.
-		return ErrCancelled
 	}
+
+	// ctx was cancelled while fn was running (or before libfido2's request
+	// actually reached the authenticator). Keep sending CTAPHID_CANCEL
+	// until fn returns; whatever it returns wins, including a result that
+	// snuck in and completed successfully despite the cancellation.
+	ticker := time.NewTicker(cancelRetryInterval)
+	defer ticker.Stop()
+	C.fido_dev_cancel(dev)
+	for {
+		select {
+		case rc := <-done:
+			return resultFromRC(rc)
+		case <-ticker.C:
+			C.fido_dev_cancel(dev)
+		}
+	}
+}
+
+func resultFromRC(rc C.int) error {
+	if rc != C.FIDO_OK {
+		return mapErr(int(rc))
+	}
+	return nil
 }
 
 // flagsFromByte decodes a raw authenticator-data flags byte, as returned by

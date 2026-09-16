@@ -172,6 +172,38 @@ func TestSoftDeterministicWithFixedRand(t *testing.T) {
 	}
 }
 
+// TestSoftEmptyRPIDDefaults covers the round-1 review finding that
+// DefaultRPID was documented as "used when none is given" but never
+// actually applied: an empty RPID on both the credential and assertion
+// requests must behave exactly as fido.DefaultRPID would, so a caller
+// that omits RPID and later verifies against fido.DefaultRPID succeeds.
+func TestSoftEmptyRPIDDefaults(t *testing.T) {
+	soft := NewSoft(Options{UserPresent: true})
+	ctx := context.Background()
+	clientDataHash := sha256.Sum256([]byte("empty rpid test"))
+
+	cred, err := soft.MakeCredential(ctx, DevicePath, fido.CredentialRequest{
+		UserID:         []byte("user-1"),
+		UserName:       "user-1",
+		ClientDataHash: clientDataHash,
+	})
+	if err != nil {
+		t.Fatalf("MakeCredential: %v", err)
+	}
+
+	assertion, err := soft.GetAssertion(ctx, DevicePath, fido.AssertionRequest{
+		ClientDataHash: clientDataHash,
+		CredentialIDs:  [][]byte{cred.CredentialID},
+	})
+	if err != nil {
+		t.Fatalf("GetAssertion: %v", err)
+	}
+
+	if err := fido.VerifyAssertion(cred.PublicKey, cred.Algorithm, fido.DefaultRPID, assertion, fido.VerifyOptions{}); err != nil {
+		t.Fatalf("VerifyAssertion against fido.DefaultRPID after an empty RPID request: %v", err)
+	}
+}
+
 func TestSoftNoMatchingCredentialGivesErrNoCredentials(t *testing.T) {
 	soft := NewSoft(Options{UserPresent: true})
 	ctx := context.Background()

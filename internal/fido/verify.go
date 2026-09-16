@@ -3,6 +3,7 @@ package fido
 import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
@@ -21,9 +22,12 @@ type VerifyOptions struct {
 //
 // It checks, in order: that a.AuthData's rpIdHash equals SHA-256(rpID),
 // that the user-presence flag is set (always required), that the
-// user-verified flag is set when opts.RequireUV is set, and finally the
-// signature over authData || clientDataHash — ecdsa.VerifyASN1 on the
-// SHA-256 digest for ES256, ed25519.Verify directly for EdDSA.
+// user-verified flag is set when opts.RequireUV is set, that a key
+// presented as ES256 is actually on the P-256 curve (COSE algorithm -7 is
+// P-256 specifically; a key on any other curve is an algorithm/key
+// mismatch, not a valid ES256 key), and finally the signature over
+// authData || clientDataHash — ecdsa.VerifyASN1 on the SHA-256 digest for
+// ES256, ed25519.Verify directly for EdDSA.
 //
 // Signature counter and clone detection are out of scope: this check is
 // stateless and makes no assumption about prior assertions.
@@ -59,6 +63,9 @@ func VerifyAssertion(publicKeyDER []byte, alg COSEAlgorithm, rpID string, a *Ass
 		key, ok := pub.(*ecdsa.PublicKey)
 		if !ok {
 			return fmt.Errorf("fido2: verify: public key is not ECDSA, cannot verify ES256 signature")
+		}
+		if key.Curve != elliptic.P256() {
+			return fmt.Errorf("fido2: verify: ES256 requires a P-256 key, got curve %s", key.Curve.Params().Name)
 		}
 		digest := sha256.Sum256(signed)
 		if !ecdsa.VerifyASN1(key, digest[:], a.Signature) {

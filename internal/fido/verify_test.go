@@ -127,3 +127,46 @@ func TestVerifyAssertionAlgorithmMismatch(t *testing.T) {
 		t.Fatalf("expected error for an ES256 key verified as EdDSA")
 	}
 }
+
+// TestVerifyAssertionES256WrongCurve covers the round-1 review finding
+// that ES256 (COSE -7) means P-256 specifically: a trust-log entry tagged
+// ES256 that actually carries a key on a different curve must be
+// rejected as an algorithm/key mismatch, not accepted just because it
+// happens to be *ecdsa.PublicKey.
+func TestVerifyAssertionES256WrongCurve(t *testing.T) {
+	priv, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		t.Fatalf("MarshalPKIXPublicKey: %v", err)
+	}
+
+	var flags byte = flagUserPresent
+	authData := buildAuthDataForTest("stet", flags, 1, nil)
+	clientDataHash := sha256.Sum256([]byte("clientData"))
+
+	signed := make([]byte, 0, len(authData)+len(clientDataHash))
+	signed = append(signed, authData...)
+	signed = append(signed, clientDataHash[:]...)
+	digest := sha256.Sum256(signed)
+
+	sig, err := ecdsa.SignASN1(rand.Reader, priv, digest[:])
+	if err != nil {
+		t.Fatalf("SignASN1: %v", err)
+	}
+
+	a := &Assertion{
+		AuthData:       authData,
+		Signature:      sig,
+		CredentialID:   []byte{1, 2, 3},
+		ClientDataHash: clientDataHash,
+		SignCount:      1,
+		Flags:          Flags{UserPresent: true},
+	}
+
+	if err := VerifyAssertion(der, ES256, "stet", a, VerifyOptions{}); err == nil {
+		t.Fatalf("expected error for an ES256-tagged key on the P-384 curve")
+	}
+}
