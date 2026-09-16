@@ -38,6 +38,11 @@ func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("github: rate limited: %s", e.Message)
 }
 
+// mergedPRsQuery's commitAuthors alias bounds how many commits (first:
+// 100) and authors per commit (first: 10) it samples to build
+// CommitAuthorLogins. That is a generous cap for ordinary PRs, not a
+// hard guarantee for enormous ones; missing an author only means a rare,
+// very-late co-author isn't excluded from qualifying approvers.
 const mergedPRsQuery = `
 query($owner: String!, $repo: String!, $base: String!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
@@ -47,11 +52,16 @@ query($owner: String!, $repo: String!, $base: String!, $cursor: String) {
         number
         url
         createdAt
+        updatedAt
         mergedAt
         author { login __typename }
         mergedBy { login }
         mergeCommit { oid }
-        commits(last: 1) { nodes { commit { committedDate } } }
+        finalCommit: commits(last: 1) { nodes { commit { committedDate } } }
+        commitAuthors: commits(first: 100) {
+          totalCount
+          nodes { commit { authors(first: 10) { nodes { user { login } } } } }
+        }
         reviews(first: 100, states: [APPROVED, CHANGES_REQUESTED, COMMENTED]) {
           nodes { author { login __typename } state submittedAt }
         }
@@ -74,6 +84,7 @@ type prNode struct {
 	Number    int    `json:"number"`
 	URL       string `json:"url"`
 	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 	MergedAt  string `json:"mergedAt"`
 	Author    struct {
 		Login    string `json:"login"`
@@ -85,13 +96,27 @@ type prNode struct {
 	MergeCommit struct {
 		OID string `json:"oid"`
 	} `json:"mergeCommit"`
-	Commits struct {
+	FinalCommit struct {
 		Nodes []struct {
 			Commit struct {
 				CommittedDate string `json:"committedDate"`
 			} `json:"commit"`
 		} `json:"nodes"`
-	} `json:"commits"`
+	} `json:"finalCommit"`
+	CommitAuthors struct {
+		TotalCount int `json:"totalCount"`
+		Nodes      []struct {
+			Commit struct {
+				Authors struct {
+					Nodes []struct {
+						User struct {
+							Login string `json:"login"`
+						} `json:"user"`
+					} `json:"nodes"`
+				} `json:"authors"`
+			} `json:"commit"`
+		} `json:"nodes"`
+	} `json:"commitAuthors"`
 	Reviews struct {
 		Nodes []struct {
 			Author struct {
@@ -119,8 +144,20 @@ type mergedPRsResponse struct {
 	Errors []graphqlError `json:"errors"`
 }
 
-// MergedPRs fetches merged pull requests into base, paging until a PR
-// merged before since is seen or limit is reached.
+// MergedPRs fetches merged pull requests into base, paging until a page
+// is exhausted, limit is reached, or a PR is seen whose updatedAt is
+// before since.
+//
+// Pages are ordered UPDATED_AT DESC, not MERGED_AT DESC (GitHub's API
+// offers no merged-date ordering), and updatedAt and mergedAt are not the
+// same clock: a PR merged long ago can be updated today by a comment, a
+// label, or a bot edit, which sorts it to the top of page 1 even though
+// it merged well outside the window. So paging only stops once a PR's
+// updatedAt itself falls before since -- which is a safe bound, since
+// updatedAt is always >= mergedAt, so every PR after it in this
+// updatedAt-DESC order also has mergedAt < since. A PR seen before that
+// point whose own mergedAt is before since is skipped, not treated as
+// the end of the window.
 func (c *GraphQLClient) MergedPRs(ctx context.Context, owner, repo, base string, since time.Time, limit int) ([]PR, error) {
 	var results []PR
 	var cursor *string
@@ -141,14 +178,28 @@ func (c *GraphQLClient) MergedPRs(ctx context.Context, owner, repo, base string,
 
 		pageDone := false
 		for _, node := range resp.Data.Repository.PullRequests.Nodes {
+			updatedAt, err := parseTime(node.UpdatedAt)
+			if err != nil {
+				return nil, fmt.Errorf("github: parsing PR #%d updatedAt: %w", node.Number, err)
+			}
+			if updatedAt.Before(since) {
+				// Safe to stop: sorted UPDATED_AT DESC, and updatedAt >=
+				// mergedAt, so every remaining PR merged before since too.
+				pageDone = true
+				break
+			}
+
 			pr, err := convertPR(node)
 			if err != nil {
 				return nil, err
 			}
 			if pr.MergedAt.Before(since) {
-				pageDone = true
-				break
+				// Updated recently but merged before since: outside the
+				// window, but does not end paging -- an in-window PR can
+				// still appear later on this or a following page.
+				continue
 			}
+
 			results = append(results, pr)
 			if len(results) >= limit {
 				return results, nil
@@ -174,8 +225,8 @@ func convertPR(node prNode) (PR, error) {
 	}
 
 	var finalCommitAt time.Time
-	if len(node.Commits.Nodes) > 0 {
-		finalCommitAt, err = parseTime(node.Commits.Nodes[0].Commit.CommittedDate)
+	if len(node.FinalCommit.Nodes) > 0 {
+		finalCommitAt, err = parseTime(node.FinalCommit.Nodes[0].Commit.CommittedDate)
 		if err != nil {
 			return PR{}, fmt.Errorf("github: parsing PR #%d final commit date: %w", node.Number, err)
 		}
@@ -195,17 +246,32 @@ func convertPR(node prNode) (PR, error) {
 		})
 	}
 
+	seen := map[string]bool{}
+	var commitAuthorLogins []string
+	for _, cn := range node.CommitAuthors.Nodes {
+		for _, an := range cn.Commit.Authors.Nodes {
+			login := an.User.Login
+			if login == "" || seen[login] {
+				continue
+			}
+			seen[login] = true
+			commitAuthorLogins = append(commitAuthorLogins, login)
+		}
+	}
+
 	return PR{
-		Number:         node.Number,
-		URL:            node.URL,
-		AuthorLogin:    node.Author.Login,
-		AuthorIsBot:    node.Author.Typename == "Bot",
-		MergedByLogin:  node.MergedBy.Login,
-		MergedAt:       mergedAt,
-		CreatedAt:      createdAt,
-		MergeCommitSHA: node.MergeCommit.OID,
-		FinalCommitAt:  finalCommitAt,
-		Reviews:        reviews,
+		Number:             node.Number,
+		URL:                node.URL,
+		AuthorLogin:        node.Author.Login,
+		AuthorIsBot:        node.Author.Typename == "Bot",
+		MergedByLogin:      node.MergedBy.Login,
+		MergedAt:           mergedAt,
+		CreatedAt:          createdAt,
+		MergeCommitSHA:     node.MergeCommit.OID,
+		TotalCommits:       node.CommitAuthors.TotalCount,
+		CommitAuthorLogins: commitAuthorLogins,
+		FinalCommitAt:      finalCommitAt,
+		Reviews:            reviews,
 	}, nil
 }
 
@@ -245,8 +311,18 @@ func (c *GraphQLClient) do(ctx context.Context, body graphqlRequest) (*mergedPRs
 		return nil, err
 	}
 
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+	if resp.StatusCode == http.StatusTooManyRequests {
 		return nil, &RateLimitError{Message: string(respBody)}
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		if isRateLimitResponse(resp.Header) {
+			return nil, &RateLimitError{Message: string(respBody)}
+		}
+		// A plain 403 also covers SAML SSO enforcement and insufficient
+		// token scope, neither of which a rate-limit wait will fix, so
+		// only the signals GitHub actually documents for rate limiting
+		// (a zeroed remaining count, or a Retry-After) are treated as one.
+		return nil, fmt.Errorf("github: forbidden (status 403): %s", string(respBody))
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github: unexpected status %d: %s", resp.StatusCode, string(respBody))
@@ -262,4 +338,14 @@ func (c *GraphQLClient) do(ctx context.Context, body graphqlRequest) (*mergedPRs
 		}
 	}
 	return &out, nil
+}
+
+// isRateLimitResponse reports whether response headers indicate a 403 was
+// actually a rate limit: GitHub sets X-RateLimit-Remaining: 0 for a
+// primary rate limit, and a Retry-After header for a secondary one.
+func isRateLimitResponse(h http.Header) bool {
+	if h.Get("Retry-After") != "" {
+		return true
+	}
+	return h.Get("X-RateLimit-Remaining") == "0"
 }

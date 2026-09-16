@@ -8,11 +8,13 @@
             "number": 10,
             "url": "https://github.com/writtendev/stet/pull/10",
             "createdAt": "2025-06-04T10:00:00Z",
+            "updatedAt": "2025-06-05T12:00:00Z",
             "mergedAt": "2025-06-05T12:00:00Z",
             "author": { "login": "alice", "__typename": "User" },
             "mergedBy": { "login": "bob" },
             "mergeCommit": { "oid": "aaa1111111111111111111111111111111111a" },
-            "commits": { "nodes": [ { "commit": { "committedDate": "2025-06-05T11:30:00Z" } } ] },
+            "finalCommit": { "nodes": [ { "commit": { "committedDate": "2025-06-05T11:30:00Z" } } ] },
+            "commitAuthors": { "totalCount": 1, "nodes": [ { "commit": { "authors": { "nodes": [ { "user": { "login": "alice" } } ] } } } ] },
             "reviews": {
               "nodes": [
                 { "author": { "login": "bob", "__typename": "User" }, "state": "APPROVED", "submittedAt": "2025-06-05T11:45:00Z" }
@@ -23,11 +25,13 @@
             "number": 9,
             "url": "https://github.com/writtendev/stet/pull/9",
             "createdAt": "2025-05-30T09:00:00Z",
+            "updatedAt": "2025-06-01T09:30:00Z",
             "mergedAt": "2025-06-01T09:30:00Z",
             "author": { "login": "carol", "__typename": "User" },
             "mergedBy": { "login": "carol" },
             "mergeCommit": { "oid": "bbb2222222222222222222222222222222222b" },
-            "commits": { "nodes": [ { "commit": { "committedDate": "2025-06-01T09:00:00Z" } } ] },
+            "finalCommit": { "nodes": [ { "commit": { "committedDate": "2025-06-01T09:00:00Z" } } ] },
+            "commitAuthors": { "totalCount": 1, "nodes": [ { "commit": { "authors": { "nodes": [ { "user": { "login": "carol" } } ] } } } ] },
             "reviews": { "nodes": [] }
           }
         ]

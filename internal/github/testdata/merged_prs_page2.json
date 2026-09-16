@@ -8,11 +8,13 @@
             "number": 8,
             "url": "https://github.com/writtendev/stet/pull/8",
             "createdAt": "2025-05-18T09:00:00Z",
+            "updatedAt": "2025-05-20T09:30:00Z",
             "mergedAt": "2025-05-20T09:30:00Z",
             "author": { "login": "dana", "__typename": "User" },
             "mergedBy": { "login": "erin" },
             "mergeCommit": { "oid": "ccc3333333333333333333333333333333333c" },
-            "commits": { "nodes": [ { "commit": { "committedDate": "2025-05-20T09:00:00Z" } } ] },
+            "finalCommit": { "nodes": [ { "commit": { "committedDate": "2025-05-20T09:00:00Z" } } ] },
+            "commitAuthors": { "totalCount": 1, "nodes": [ { "commit": { "authors": { "nodes": [ { "user": { "login": "dana" } } ] } } } ] },
             "reviews": {
               "nodes": [
                 { "author": { "login": "erin", "__typename": "User" }, "state": "APPROVED", "submittedAt": "2025-05-20T09:15:00Z" }

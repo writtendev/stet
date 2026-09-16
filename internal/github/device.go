@@ -19,9 +19,16 @@ import (
 // failing in a confusing way.
 var OAuthClientID string
 
-// deviceScopes is intentionally minimal: read-only access to pull
-// requests and reviews on public and private repos the user can see.
-const deviceScopes = "repo:status read:org"
+// deviceScopes requests the "repo" scope. GitHub OAuth apps have no
+// narrower scope that grants read access to a private repository's pull
+// requests and reviews; "repo:status" only grants commit-status access
+// and silently returns NOT_FOUND/permission errors for private PRs,
+// which looks like a working login until the report degrades to
+// local-only. "repo" is broader than this tool needs (it also grants
+// write access), a deliberate tradeoff for private-repo support over
+// least privilege; a public-only deployment could use "public_repo"
+// instead.
+const deviceScopes = "repo read:org"
 
 // CodeHost is where device.go's endpoints live. Overridable in tests.
 type CodeHost struct {

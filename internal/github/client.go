@@ -26,8 +26,19 @@ type PR struct {
 	CreatedAt        time.Time
 	ReadyForReviewAt *time.Time
 	MergeCommitSHA   string
-	FinalCommitAt    time.Time
-	Reviews          []Review
+	// TotalCommits is the number of commits on the PR's branch. For a
+	// rebase merge, this many first-parent commits land on the base
+	// branch ending at MergeCommitSHA (GitHub only reports the SHA of the
+	// last one), so it lets the audit associate all of them with this PR
+	// instead of only the last.
+	TotalCommits int
+	// CommitAuthorLogins are the GitHub logins of everyone who authored a
+	// commit on the PR's branch (deduplicated, unlinked/absent users
+	// omitted). An approval from one of them is a co-author reviewing
+	// their own contribution, not independent review.
+	CommitAuthorLogins []string
+	FinalCommitAt      time.Time
+	Reviews            []Review
 }
 
 // Client reads merged-PR review data for one repository.

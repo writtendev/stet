@@ -102,8 +102,32 @@ func TestGraphQLMergedPRsLimit(t *testing.T) {
 	}
 }
 
+func TestGraphQLMergedPRsCommitAuthorsAndTotalCount(t *testing.T) {
+	page1 := loadFixture(t, "merged_prs_page1.json")
+	server, _ := pagedServer(t, []string{page1})
+	defer server.Close()
+
+	client := &GraphQLClient{Token: "tok", BaseURL: server.URL, HTTPClient: server.Client()}
+
+	prs, err := client.MergedPRs(context.Background(), "writtendev", "stet", "main", time.Time{}, 1)
+	if err != nil {
+		t.Fatalf("MergedPRs: %v", err)
+	}
+	if len(prs) != 1 {
+		t.Fatalf("expected 1 PR, got %d", len(prs))
+	}
+	pr := prs[0]
+	if pr.TotalCommits != 1 {
+		t.Errorf("expected TotalCommits 1, got %d", pr.TotalCommits)
+	}
+	if len(pr.CommitAuthorLogins) != 1 || pr.CommitAuthorLogins[0] != "alice" {
+		t.Errorf("expected CommitAuthorLogins [alice], got %+v", pr.CommitAuthorLogins)
+	}
+}
+
 func TestGraphQLRateLimitError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = io.WriteString(w, `{"message": "API rate limit exceeded"}`)
 	}))
@@ -117,6 +141,67 @@ func TestGraphQLRateLimitError(t *testing.T) {
 	var rle *RateLimitError
 	if !errors.As(err, &rle) {
 		t.Errorf("expected a *RateLimitError, got %T: %v", err, err)
+	}
+}
+
+func TestGraphQLRateLimitRetryAfterHeader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"message": "You have exceeded a secondary rate limit"}`)
+	}))
+	defer server.Close()
+
+	client := &GraphQLClient{Token: "tok", BaseURL: server.URL, HTTPClient: server.Client()}
+	_, err := client.MergedPRs(context.Background(), "writtendev", "stet", "main", time.Time{}, 100)
+	var rle *RateLimitError
+	if !errors.As(err, &rle) {
+		t.Errorf("expected a *RateLimitError for a Retry-After 403, got %T: %v", err, err)
+	}
+}
+
+func TestGraphQLForbiddenWithoutRateLimitHeadersIsPlainError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"message": "Resource protected by organization SAML enforcement"}`)
+	}))
+	defer server.Close()
+
+	client := &GraphQLClient{Token: "tok", BaseURL: server.URL, HTTPClient: server.Client()}
+	_, err := client.MergedPRs(context.Background(), "writtendev", "stet", "main", time.Time{}, 100)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	var rle *RateLimitError
+	if errors.As(err, &rle) {
+		t.Fatal("a SAML-enforcement 403 with no rate-limit headers must not be reported as a rate limit")
+	}
+	if !strings.Contains(err.Error(), "SAML enforcement") {
+		t.Errorf("expected the underlying message to surface, got %v", err)
+	}
+}
+
+func TestGraphQLMergedPRsSkipsStaleUpdatedPRWithoutStoppingPagination(t *testing.T) {
+	page1 := loadFixture(t, "merged_prs_stale_update_page1.json")
+	page2 := loadFixture(t, "merged_prs_stale_update_page2.json")
+
+	server, _ := pagedServer(t, []string{page1, page2})
+	defer server.Close()
+
+	client := &GraphQLClient{Token: "tok", BaseURL: server.URL, HTTPClient: server.Client()}
+
+	// PR #50 merged long ago (2023) but was updated recently (2025-06-10),
+	// so UPDATED_AT DESC sorts it onto page 1 ahead of PR #40, which
+	// merged inside the window. A PR merged outside the window must be
+	// skipped, not treated as the end of the window, so page 2 must still
+	// be fetched and PR #40 must still be collected.
+	since := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	prs, err := client.MergedPRs(context.Background(), "writtendev", "stet", "main", since, 100)
+	if err != nil {
+		t.Fatalf("MergedPRs: %v", err)
+	}
+	if len(prs) != 1 || prs[0].Number != 40 {
+		t.Fatalf("expected only in-window PR #40, got %+v", prs)
 	}
 }
 
