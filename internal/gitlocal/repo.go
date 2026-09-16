@@ -68,6 +68,19 @@ func (r *Repo) RemoteURL(ctx context.Context, remote string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// CurrentBranch returns the repository's currently checked-out branch
+// name, or the literal "HEAD" when it is in a detached-HEAD state (which
+// git log and other plumbing accept as a ref just as well as a branch
+// name). Used as a local-only fallback when no remote-tracking default
+// branch can be resolved, so the git tier can still run.
+func (r *Repo) CurrentBranch(ctx context.Context) (string, error) {
+	out, err := r.run(ctx, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("gitlocal: resolving current branch: %w", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // DefaultBranch resolves the default branch of remote: first via the
 // tracked refs/remotes/<remote>/HEAD symref (as set by `git clone` or
 // `git remote set-head`), falling back to a "main" or "master" branch if

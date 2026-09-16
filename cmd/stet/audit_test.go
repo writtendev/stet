@@ -69,6 +69,127 @@ func executeAuditCmd(deps auditDeps, args ...string) (string, error) {
 	return buf.String(), err
 }
 
+// tempLocalOnlyRepo builds a hermetic git repo with no remote at all, so
+// gitlocal.Repo.DefaultBranch cannot resolve any refs/remotes/<remote>/*
+// ref. This exercises audit's local-only degrade-gracefully path: only
+// "not a git repo" is meant to be fatal.
+func tempLocalOnlyRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found on PATH")
+	}
+
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	run("init", "--initial-branch=main")
+	run("config", "user.name", "Test User")
+	run("config", "user.email", "test@example.com")
+	run("config", "commit.gpgsign", "false")
+	run("commit", "--allow-empty", "-m", "first commit")
+
+	return dir
+}
+
+func TestAuditLocalOnlyRepoDegradesGracefully(t *testing.T) {
+	globals.json = true
+	globals.verbose = false
+	defer func() { globals.json = false }()
+
+	deps := auditDeps{
+		dir:    tempLocalOnlyRepo(t),
+		env:    fakeEnv{},
+		runner: failingRunner{fail: func(msg string) { t.Error(msg) }},
+		newClient: func(token string) github.Client {
+			t.Fatal("newClient should never be called when the default branch cannot be resolved")
+			return nil
+		},
+		now: func() time.Time { return time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC) },
+	}
+
+	out, err := executeAuditCmd(deps)
+	if err != nil {
+		t.Fatalf("a local-only repo with no remote must degrade gracefully, not fail: %v\noutput: %s", err, out)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid json: %v, raw: %s", err, out)
+	}
+	if payload["default_branch"] != "main" {
+		t.Errorf("expected default_branch to fall back to the current branch %q, got %v", "main", payload["default_branch"])
+	}
+	sources, ok := payload["sources"].(map[string]any)
+	if !ok || sources["github"] != false {
+		t.Fatalf("expected sources.github == false, got: %+v", payload["sources"])
+	}
+	reason, _ := sources["github_unavailable_reason"].(string)
+	if reason == "" {
+		t.Error("expected a non-empty github_unavailable_reason explaining the fallback")
+	}
+	signatures, ok := payload["signatures"].(map[string]any)
+	if !ok || signatures["commits"] != float64(1) {
+		t.Errorf("expected the git tier to still run against the local branch, got: %+v", payload["signatures"])
+	}
+}
+
+func TestAuditLogsRemoteTrackingRefNotLocalBranch(t *testing.T) {
+	globals.json = true
+	globals.verbose = false
+	defer func() { globals.json = false }()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found on PATH")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "--initial-branch=main")
+	run("config", "user.name", "Test User")
+	run("config", "user.email", "test@example.com")
+	run("config", "commit.gpgsign", "false")
+	run("commit", "--allow-empty", "-m", "first commit")
+	run("remote", "add", "origin", "git@github.com:writtendev/stet.git")
+	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	// Advance the local branch beyond what's actually on the remote, the
+	// way an operator's stale local checkout could: this extra commit
+	// must not be counted as a direct push to the (remote) default
+	// branch, since it never reached refs/remotes/origin/main.
+	run("commit", "--allow-empty", "-m", "local-only commit, never pushed")
+
+	deps := auditDeps{
+		dir:       dir,
+		env:       fakeEnv{"GH_TOKEN": "test-token"},
+		runner:    noGHRunner{},
+		newClient: func(token string) github.Client { return &github.FakeClient{} },
+		now:       func() time.Time { return time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC) },
+	}
+
+	out, err := executeAuditCmd(deps, "--offline")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\noutput: %s", err, out)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid json: %v, raw: %s", err, out)
+	}
+	signatures, ok := payload["signatures"].(map[string]any)
+	if !ok || signatures["commits"] != float64(1) {
+		t.Errorf("expected only the 1 commit on refs/remotes/origin/main to be logged, not the unpushed local commit, got: %+v", payload["signatures"])
+	}
+}
+
 func TestAuditJSONShapeWithFakeClient(t *testing.T) {
 	globals.json = true
 	globals.verbose = false

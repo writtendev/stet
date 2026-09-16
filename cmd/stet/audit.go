@@ -88,6 +88,11 @@ set.`,
 	}
 
 	cmd.Flags().IntVar(&flags.months, "months", 6, "Number of trailing months to audit")
+	// A PR dropped by this cutoff cannot be told apart from a genuine
+	// direct push (see countDirectPushes in internal/audit/compute.go),
+	// so a repo with more merged PRs in the window than --limit will see
+	// its direct-push count, and headline, inflated; raise --limit (or
+	// narrow --months) rather than trusting a truncated report.
 	cmd.Flags().IntVar(&flags.limit, "limit", 500, "Maximum merged pull requests to fetch from GitHub")
 	cmd.Flags().BoolVar(&flags.offline, "offline", false, "Skip the GitHub tier; report only what local git can determine")
 	cmd.Flags().StringVar(&flags.remote, "remote", "origin", "Git remote to audit")
@@ -117,9 +122,21 @@ func runAudit(cmd *cobra.Command, flags auditFlags, deps auditDeps) error {
 		return fmt.Errorf("audit: %w", err)
 	}
 
-	defaultBranch, err := repo.DefaultBranch(ctx, flags.remote)
-	if err != nil {
-		return fmt.Errorf("audit: %w", err)
+	// Resolving the default branch needs the remote's tracking refs.
+	// Per the offline-invariant reconciliation, only "not a git repo" is
+	// fatal: a local-only repo (no remote, or a remote without a
+	// resolvable HEAD/main/master) must still produce a git-tier report,
+	// falling back to whatever is actually checked out. defaultBranchErr
+	// is threaded through to resolveGitHubTier, since a GitHub tier query
+	// needs the real default branch name and cannot run on this fallback.
+	defaultBranch, defaultBranchErr := repo.DefaultBranch(ctx, flags.remote)
+	logRef := fmt.Sprintf("refs/remotes/%s/%s", flags.remote, defaultBranch)
+	if defaultBranchErr != nil {
+		defaultBranch, err = repo.CurrentBranch(ctx)
+		if err != nil {
+			return fmt.Errorf("audit: %w", err)
+		}
+		logRef = defaultBranch
 	}
 
 	now := deps.now()
@@ -132,7 +149,13 @@ func runAudit(cmd *cobra.Command, flags auditFlags, deps auditDeps) error {
 	}
 	since := now.UTC().AddDate(0, -months, 0)
 
-	commits, err := repo.FirstParentLog(ctx, defaultBranch, since)
+	// logRef names the remote-tracking ref (refs/remotes/<remote>/<branch>)
+	// rather than the bare branch name, so this always logs the remote's
+	// default branch as GitHub sees it, not whatever the local branch of
+	// the same name happens to point at -- which can be behind (hiding
+	// merges GitHub already reports) or ahead (miscounting local-only
+	// commits as direct pushes to the default branch).
+	commits, err := repo.FirstParentLog(ctx, logRef, since)
 	if err != nil {
 		return fmt.Errorf("audit: %w", err)
 	}
@@ -153,7 +176,7 @@ func runAudit(cmd *cobra.Command, flags auditFlags, deps auditDeps) error {
 		}
 	}
 
-	resolveGitHubTier(ctx, &input, flags, deps, errOut, remoteErr, owner, name, isGitHub, defaultBranch, since)
+	resolveGitHubTier(ctx, &input, flags, deps, errOut, defaultBranchErr, remoteErr, owner, name, isGitHub, defaultBranch, since)
 
 	report := audit.Build(input, now)
 
@@ -176,6 +199,7 @@ func resolveGitHubTier(
 	flags auditFlags,
 	deps auditDeps,
 	errOut io.Writer,
+	defaultBranchErr error,
 	remoteErr error,
 	owner, name string,
 	isGitHub bool,
@@ -185,6 +209,9 @@ func resolveGitHubTier(
 	switch {
 	case flags.offline:
 		input.GitHubUnavailableReason = "skipped: --offline"
+		return
+	case defaultBranchErr != nil:
+		input.GitHubUnavailableReason = fmt.Sprintf("could not resolve remote %q's default branch: %v", flags.remote, defaultBranchErr)
 		return
 	case remoteErr != nil:
 		input.GitHubUnavailableReason = fmt.Sprintf("no remote named %q", flags.remote)
