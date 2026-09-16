@@ -118,13 +118,27 @@ type prAnalysis struct {
 }
 
 func analyzePR(pr github.PR) prAnalysis {
+	start := pr.CreatedAt
+	if pr.ReadyForReviewAt != nil {
+		start = *pr.ReadyForReviewAt
+	}
+
 	// latestApproval tracks any APPROVED review (qualifying or not) for
 	// the predates-final-commit check. earliestQualifying/latestQualifying
-	// track only qualifying approvals: the earliest sets the approval
-	// latency (time to first qualifying approval, per the brief),
-	// separately from the latest, which decides whether the PR has
-	// meaningful review at all (it must cover the code that actually
-	// merged).
+	// track only qualifying approvals: the earliest one at or after start
+	// sets the approval latency (time from start to the first qualifying
+	// approval, per the brief), separately from the latest (regardless of
+	// start), which decides whether the PR has meaningful review at all
+	// (it must cover the code that actually merged).
+	//
+	// A PR that goes ready -> approved -> back to draft -> ready again
+	// can carry a qualifying approval that predates start: GitHub's
+	// timelineItems query only ever reports the *last* ready-for-review
+	// event, so an approval from before that cycle is still on the PR.
+	// Excluding those from earliestQualifying keeps latency from going
+	// negative -- it measures to the first qualifying approval that
+	// actually followed the PR's current ready state, not one stranded
+	// behind an earlier draft cycle.
 	var latestApproval, earliestQualifying, latestQualifying *github.Review
 
 	for i := range pr.Reviews {
@@ -136,7 +150,8 @@ func analyzePR(pr github.PR) prAnalysis {
 			latestApproval = rv
 		}
 		if isQualifyingApprover(*rv, pr) {
-			if earliestQualifying == nil || rv.SubmittedAt.Before(earliestQualifying.SubmittedAt) {
+			if !rv.SubmittedAt.Before(start) &&
+				(earliestQualifying == nil || rv.SubmittedAt.Before(earliestQualifying.SubmittedAt)) {
 				earliestQualifying = rv
 			}
 			if latestQualifying == nil || rv.SubmittedAt.After(latestQualifying.SubmittedAt) {
@@ -156,11 +171,16 @@ func analyzePR(pr github.PR) prAnalysis {
 
 	if latestQualifying != nil && !latestQualifying.SubmittedAt.Before(pr.FinalCommitAt) {
 		a.meaningfulReview = true
-		start := pr.CreatedAt
-		if pr.ReadyForReviewAt != nil {
-			start = *pr.ReadyForReviewAt
+		if earliestQualifying != nil {
+			a.latencyBucket = bucketFor(earliestQualifying.SubmittedAt.Sub(start))
+		} else {
+			// Meaningful review exists (the code that merged was covered
+			// by a qualifying approval), but every qualifying approval
+			// predates start, so there is nothing at or after start to
+			// measure latency to. Report it the same way as "no
+			// qualifying approval at all" rather than guess.
+			a.latencyBucket = "none"
 		}
-		a.latencyBucket = bucketFor(earliestQualifying.SubmittedAt.Sub(start))
 	} else {
 		a.latencyBucket = "none"
 	}
@@ -197,6 +217,13 @@ func hasSelfApproval(pr github.PR) bool {
 }
 
 func bucketFor(d time.Duration) string {
+	// Callers should never hand this a negative duration -- analyzePR
+	// only measures from a qualifying approval at or after the chosen
+	// start -- but clamp defensively rather than let a negative value
+	// silently land in "<5m" for the wrong reason.
+	if d < 0 {
+		d = 0
+	}
 	switch {
 	case d < 5*time.Minute:
 		return "<5m"

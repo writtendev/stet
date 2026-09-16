@@ -204,6 +204,62 @@ func TestAnalyzePRLatencyMeasuredFromReadyForReviewNotCreatedAt(t *testing.T) {
 	}
 }
 
+func TestAnalyzePRLatencyDraftReadyDraftReadyCycleNeverNegative(t *testing.T) {
+	pr := basePR(24)
+	pr.MergedByLogin = "reviewer"
+	// First round: marked ready and approved almost immediately. Then
+	// the PR goes back to draft for more work and is marked ready again
+	// 2 days later -- GitHub's timelineItems query only ever reports
+	// this *last* ready-for-review event, so start jumps forward past
+	// the first approval. The same reviewer re-approves 5 minutes after
+	// the second ready event, which also covers the final commit.
+	//
+	// The naive "earliest qualifying approval" (the first-round one)
+	// predates this start, which used to bucket as a negative duration
+	// landing in "<5m" for the wrong reason. Latency must instead be
+	// measured from the second ready event to the second approval.
+	firstApproval := pr.CreatedAt.Add(10 * time.Minute)
+	secondReady := pr.CreatedAt.Add(2 * 24 * time.Hour)
+	secondApproval := secondReady.Add(5 * time.Minute)
+	pr.ReadyForReviewAt = &secondReady
+	pr.FinalCommitAt = secondReady
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: firstApproval},
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: secondApproval},
+	}
+	a := analyzePR(pr)
+	if !a.meaningfulReview {
+		t.Fatal("expected meaningful review from the second approval covering the final commit")
+	}
+	if a.latencyBucket != "5m-1h" {
+		t.Errorf("expected latency measured from the second ready event to the second approval (5m-1h), got %q", a.latencyBucket)
+	}
+}
+
+func TestAnalyzePRLatencyNoneWhenOnlyQualifyingApprovalPredatesStart(t *testing.T) {
+	pr := basePR(25)
+	pr.MergedByLogin = "reviewer"
+	// Approved once, before the PR was (re-)marked ready; the final
+	// commit lands exactly at that later ready event, so the approval
+	// still covers it and meaningfulReview holds. But there is no
+	// qualifying approval at or after start, so latency can't be
+	// measured and must report "none" rather than a negative bucket.
+	approval := pr.CreatedAt.Add(10 * time.Minute)
+	ready := pr.CreatedAt.Add(2 * 24 * time.Hour)
+	pr.ReadyForReviewAt = &ready
+	pr.FinalCommitAt = approval
+	pr.Reviews = []github.Review{
+		{AuthorLogin: "reviewer", State: "APPROVED", SubmittedAt: approval},
+	}
+	a := analyzePR(pr)
+	if !a.meaningfulReview {
+		t.Fatal("expected meaningful review since the approval covers the final commit")
+	}
+	if a.latencyBucket != "none" {
+		t.Errorf("expected 'none' when the only qualifying approval predates start, got %q", a.latencyBucket)
+	}
+}
+
 func TestAnalyzePRCoAuthorApprovalDoesNotCount(t *testing.T) {
 	pr := basePR(21)
 	pr.MergedByLogin = "someone-else"
@@ -431,6 +487,7 @@ func TestBucketFor(t *testing.T) {
 		d    time.Duration
 		want string
 	}{
+		{-time.Hour, "<5m"}, // guarded: a negative duration must never escape as its own bucket
 		{time.Minute, "<5m"},
 		{10 * time.Minute, "5m-1h"},
 		{2 * time.Hour, "1h-24h"},

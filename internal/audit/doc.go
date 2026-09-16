@@ -51,11 +51,16 @@
 //
 // Approval latency: for a PR with meaningful review, the time from the
 // PR's CreatedAt (or ReadyForReviewAt when GitHub reports one) to the
-// *first* qualifying approval, bucketed into <5m, 5m-1h, 1h-24h, 1d-7d,
-// >7d -- distinct from the *latest* qualifying approval, which is what
-// decides whether the PR has meaningful review at all (it must cover the
-// code that actually merged). A PR without meaningful review buckets
-// into "none".
+// *first qualifying approval at or after that same start*, bucketed into
+// <5m, 5m-1h, 1h-24h, 1d-7d, >7d -- distinct from the *latest* qualifying
+// approval, which is what decides whether the PR has meaningful review
+// at all (it must cover the code that actually merged). Restricting to
+// approvals at or after start matters for a PR marked ready, approved,
+// sent back to draft, and marked ready again: GitHub only ever reports
+// the *last* ready-for-review event, so an earlier approval can predate
+// it and must not be measured against it (that would go negative). A PR
+// without meaningful review, or whose only qualifying approval(s) all
+// predate start, buckets into "none".
 //
 // Bot/agent commit: a commit whose author or committer name/email
 // matches a "[bot]" suffix, a GitHub Bot account type, or one of the
