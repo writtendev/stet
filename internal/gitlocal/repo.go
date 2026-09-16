@@ -133,15 +133,35 @@ var logFormat = strings.Join([]string{
 	"%H", "%an", "%ae", "%cn", "%ce", "%cI", "%P", "%G?", "%B",
 }, fieldSep) + recordSep
 
+// unbornHEAD reports whether the repository genuinely has no commits at
+// all yet -- a fresh `git init` with nothing committed. It is the only
+// case in which a ref failing to resolve is not an error: any other ref
+// resolution failure (a branch that was never fetched, a dangling
+// refs/remotes/<remote>/HEAD symref left pointing at a deleted or
+// renamed branch) is a real problem with real commits sitting right
+// there, not an empty repository, and must not be reported as one.
+func (r *Repo) unbornHEAD(ctx context.Context) bool {
+	_, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "HEAD")
+	return err != nil
+}
+
 // FirstParentLog returns the first-parent commit history of branch,
 // optionally limited to commits committed at or after since (a zero
 // since returns the full history). branch resolving to no commit at all
-// -- an unborn HEAD/branch in a brand-new repository with nothing
-// committed yet -- is not an error: it returns an empty history, so a
-// fresh `git init` still produces a report instead of a hard failure.
+// is an error, unless the repository as a whole is unborn -- a
+// brand-new repository with nothing committed yet -- in which case it
+// returns an empty history, so a fresh `git init` still produces a
+// report instead of a hard failure. A branch that fails to resolve in a
+// repository that genuinely has commits (e.g. a stale or dangling
+// refs/remotes/<remote>/HEAD symref pointing at a deleted or renamed
+// branch) is not silently treated as empty: that would produce a report
+// claiming zero commits and 0% coverage against real history.
 func (r *Repo) FirstParentLog(ctx context.Context, branch string, since time.Time) ([]Commit, error) {
 	if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", branch); err != nil {
-		return nil, nil
+		if r.unbornHEAD(ctx) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("gitlocal: branch %q does not resolve to a commit: %w", branch, err)
 	}
 
 	args := []string{"log", "--first-parent", "--date=iso-strict", "--pretty=format:" + logFormat}

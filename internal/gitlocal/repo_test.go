@@ -230,6 +230,51 @@ func TestFirstParentLogSince(t *testing.T) {
 	}
 }
 
+func TestFirstParentLogDanglingStaleOriginHEADIsAnError(t *testing.T) {
+	dir := initRepo(t)
+	writeCommit(t, dir, "a.txt", "first commit")
+	writeCommit(t, dir, "b.txt", "second commit")
+
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("remote", "add", "origin", t.TempDir())
+	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	// A stale/dangling refs/remotes/origin/HEAD: it symlinks to a branch
+	// that was renamed or deleted (e.g. after a default-branch rename, or
+	// a prune with an older git / followRemoteHEAD=never). git
+	// symbolic-ref happily reads the symref itself without checking that
+	// its target exists, so DefaultBranch still reports "trunk" even
+	// though refs/remotes/origin/trunk was never created.
+	run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+
+	repo, err := Open(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	branch, err := repo.DefaultBranch(context.Background(), "origin")
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if branch != "trunk" {
+		t.Fatalf("expected DefaultBranch to report the dangling symref target %q, got %q", "trunk", branch)
+	}
+
+	// The repository genuinely has commits -- HEAD is not unborn -- so a
+	// branch that fails to resolve here must be a real error, not a
+	// silently empty history. Before the fix, any rev-parse --verify
+	// failure was swallowed as "empty repo", which made this look like a
+	// clean, fully-covered report with zero commits instead of surfacing
+	// the broken remote-tracking state.
+	if _, err := repo.FirstParentLog(context.Background(), "refs/remotes/origin/"+branch, time.Time{}); err == nil {
+		t.Fatal("expected an error logging a dangling remote-tracking ref in a non-empty repository")
+	}
+}
+
 func TestOpenNotAGitRepo(t *testing.T) {
 	requireGit(t)
 	if _, err := Open(context.Background(), t.TempDir()); err == nil {

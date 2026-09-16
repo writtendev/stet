@@ -125,6 +125,35 @@ func TestGraphQLMergedPRsCommitAuthorsAndTotalCount(t *testing.T) {
 	}
 }
 
+func TestGraphQLMergedPRsCommitAuthorsQueryFetchesNewestCommits(t *testing.T) {
+	var capturedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("reading request body: %v", err)
+		}
+		capturedBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, loadFixture(t, "merged_prs_page1.json"))
+	}))
+	defer server.Close()
+
+	client := &GraphQLClient{Token: "tok", BaseURL: server.URL, HTTPClient: server.Client()}
+	if _, err := client.MergedPRs(context.Background(), "writtendev", "stet", "main", time.Time{}, 100); err != nil {
+		t.Fatalf("MergedPRs: %v", err)
+	}
+
+	// countDirectPushes walks backwards from a PR'''s landed commit, so the
+	// commits it needs to positively match are the PR'''s newest ones --
+	// those immediately beneath the landing point in the first-parent
+	// chain. Fetching the oldest 100 (first: 100) instead leaks every
+	// commit past the cap on a large rebase-merged PR as a phantom direct
+	// push; last (not first) keeps the newest ones.
+	if !strings.Contains(capturedBody, "commitAuthors: commits(last: 100)") {
+		t.Errorf("expected the commitAuthors query to request the newest 100 commits, got: %s", capturedBody)
+	}
+}
+
 func TestGraphQLMergedPRsReviewsQueryFetchesOnlyLatestApproved(t *testing.T) {
 	var capturedBody string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

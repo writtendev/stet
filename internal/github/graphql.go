@@ -38,13 +38,17 @@ func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("github: rate limited: %s", e.Message)
 }
 
-// mergedPRsQuery's commitAuthors alias bounds how many commits (first:
+// mergedPRsQuery's commitAuthors alias bounds how many commits (last:
 // 100) and authors per commit (first: 10) it samples to build
-// CommitAuthorLogins and PR.Commits. That is a generous cap for ordinary
-// PRs, not a hard guarantee for enormous ones; missing an author only
-// means a rare, very-late co-author isn't excluded from qualifying
-// approvers, and a commit past the cap can't be positively matched back
-// to the PR by countDirectPushes.
+// CommitAuthorLogins and PR.Commits. last (not first) keeps the newest
+// 100: countDirectPushes walks backwards from the landed commit, so the
+// commits immediately beneath it in the first-parent chain are the PR's
+// newest ones, and those are the ones that must be in PR.Commits for the
+// walk to keep matching instead of stopping early. That is a generous
+// cap for ordinary PRs, not a hard guarantee for enormous ones; missing
+// an author only means a rare, very-early co-author isn't excluded from
+// qualifying approvers, and a PR with more than 100 commits leaks its
+// oldest replayed commits as phantom direct pushes past the cap.
 //
 // reviews requests only APPROVED (the only state compute.go reads) with
 // last: 100, not first: 100 over every state: fetching CHANGES_REQUESTED
@@ -69,7 +73,7 @@ query($owner: String!, $repo: String!, $base: String!, $cursor: String) {
         mergedBy { login }
         mergeCommit { oid }
         finalCommit: commits(last: 1) { nodes { commit { committedDate } } }
-        commitAuthors: commits(first: 100) {
+        commitAuthors: commits(last: 100) {
           totalCount
           nodes {
             commit {
