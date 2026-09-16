@@ -40,9 +40,20 @@ func (e *RateLimitError) Error() string {
 
 // mergedPRsQuery's commitAuthors alias bounds how many commits (first:
 // 100) and authors per commit (first: 10) it samples to build
-// CommitAuthorLogins. That is a generous cap for ordinary PRs, not a
-// hard guarantee for enormous ones; missing an author only means a rare,
-// very-late co-author isn't excluded from qualifying approvers.
+// CommitAuthorLogins and PR.Commits. That is a generous cap for ordinary
+// PRs, not a hard guarantee for enormous ones; missing an author only
+// means a rare, very-late co-author isn't excluded from qualifying
+// approvers, and a commit past the cap can't be positively matched back
+// to the PR by countDirectPushes.
+//
+// reviews requests only APPROVED (the only state compute.go reads) with
+// last: 100, not first: 100 over every state: fetching CHANGES_REQUESTED
+// and COMMENTED too counted every inline-comment reply and review-bot
+// pass toward the same 100-review cap, so a busy PR's actual final
+// approval -- past review #100 in submission order -- was never
+// fetched. Restricting to APPROVED alone drops that noise, and last
+// (not first) keeps the newest ones when a PR genuinely has more than
+// 100 real approvals.
 const mergedPRsQuery = `
 query($owner: String!, $repo: String!, $base: String!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
@@ -60,9 +71,15 @@ query($owner: String!, $repo: String!, $base: String!, $cursor: String) {
         finalCommit: commits(last: 1) { nodes { commit { committedDate } } }
         commitAuthors: commits(first: 100) {
           totalCount
-          nodes { commit { authors(first: 10) { nodes { user { login } } } } }
+          nodes {
+            commit {
+              message
+              author { name email }
+              authors(first: 10) { nodes { user { login } } }
+            }
+          }
         }
-        reviews(first: 100, states: [APPROVED, CHANGES_REQUESTED, COMMENTED]) {
+        reviews(last: 100, states: [APPROVED]) {
           nodes { author { login __typename } state submittedAt }
         }
       }
@@ -107,6 +124,11 @@ type prNode struct {
 		TotalCount int `json:"totalCount"`
 		Nodes      []struct {
 			Commit struct {
+				Message string `json:"message"`
+				Author  struct {
+					Name  string `json:"name"`
+					Email string `json:"email"`
+				} `json:"author"`
 				Authors struct {
 					Nodes []struct {
 						User struct {
@@ -248,7 +270,13 @@ func convertPR(node prNode) (PR, error) {
 
 	seen := map[string]bool{}
 	var commitAuthorLogins []string
+	commits := make([]PRCommit, 0, len(node.CommitAuthors.Nodes))
 	for _, cn := range node.CommitAuthors.Nodes {
+		commits = append(commits, PRCommit{
+			Message:     cn.Commit.Message,
+			AuthorName:  cn.Commit.Author.Name,
+			AuthorEmail: cn.Commit.Author.Email,
+		})
 		for _, an := range cn.Commit.Authors.Nodes {
 			login := an.User.Login
 			if login == "" || seen[login] {
@@ -269,6 +297,7 @@ func convertPR(node prNode) (PR, error) {
 		CreatedAt:          createdAt,
 		MergeCommitSHA:     node.MergeCommit.OID,
 		TotalCommits:       node.CommitAuthors.TotalCount,
+		Commits:            commits,
 		CommitAuthorLogins: commitAuthorLogins,
 		FinalCommitAt:      finalCommitAt,
 		Reviews:            reviews,

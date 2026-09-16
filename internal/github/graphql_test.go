@@ -125,6 +125,38 @@ func TestGraphQLMergedPRsCommitAuthorsAndTotalCount(t *testing.T) {
 	}
 }
 
+func TestGraphQLMergedPRsReviewsQueryFetchesOnlyLatestApproved(t *testing.T) {
+	var capturedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("reading request body: %v", err)
+		}
+		capturedBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, loadFixture(t, "merged_prs_page1.json"))
+	}))
+	defer server.Close()
+
+	client := &GraphQLClient{Token: "tok", BaseURL: server.URL, HTTPClient: server.Client()}
+	if _, err := client.MergedPRs(context.Background(), "writtendev", "stet", "main", time.Time{}, 100); err != nil {
+		t.Fatalf("MergedPRs: %v", err)
+	}
+
+	// On a busy PR, fetching CHANGES_REQUESTED and COMMENTED reviews too
+	// counted every inline-comment reply and review-bot pass toward the
+	// same 100-review cap, so the real final APPROVED review -- the only
+	// state analyzePR reads -- could fall past node #100 and never be
+	// fetched. Requesting only APPROVED, with last (not first) to keep
+	// the newest ones, fixes that.
+	if !strings.Contains(capturedBody, "reviews(last: 100, states: [APPROVED])") {
+		t.Errorf("expected the reviews query to request only the newest 100 APPROVED reviews, got: %s", capturedBody)
+	}
+	if strings.Contains(capturedBody, "CHANGES_REQUESTED") || strings.Contains(capturedBody, "COMMENTED") {
+		t.Errorf("expected CHANGES_REQUESTED/COMMENTED reviews (unused by analyzePR, and only noise against the review cap) to no longer be fetched, got: %s", capturedBody)
+	}
+}
+
 func TestGraphQLRateLimitError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-RateLimit-Remaining", "0")
