@@ -6,10 +6,13 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -380,5 +383,214 @@ func TestDefaultPath(t *testing.T) {
 	}
 	if !strings.HasSuffix(path, filepath.Join("stet", "trusted-keys.jsonl")) {
 		t.Errorf("DefaultPath = %q, want a path ending in stet/trusted-keys.jsonl", path)
+	}
+}
+
+// The tests below cover the round-2 review finding: Add/Revoke used to
+// validate a new record only against an in-memory Set seeded once at
+// Open, with no locking and no reload, so that state could diverge from
+// the file on disk (a Sync failure followed by a caller retry, a short
+// write leaving a torn trailing line, or a second writer on the same
+// path) and let through a record Load would later reject, poisoning the
+// log for good. The fix: Add/Revoke now take an exclusive flock and
+// re-read the file from scratch before validating, and Load tolerates a
+// final line with no trailing newline as not-yet-committed instead of
+// failing the whole log over it.
+
+// flakySync wraps an *os.File and can be made to fail its next Sync call
+// exactly once, to simulate a write that reached disk but whose fsync
+// failed -- without needing real disk pressure or injected I/O errors.
+type flakySync struct {
+	*os.File
+	failSyncOnce bool
+}
+
+func (w *flakySync) Sync() error {
+	if w.failSyncOnce {
+		w.failSyncOnce = false
+		return errors.New("simulated fsync failure")
+	}
+	return w.File.Sync()
+}
+
+// TestAddSurvivesSyncFailureOnRetry covers scenario 1 from the finding: a
+// Write succeeds (the record's bytes, including its trailing newline,
+// are on disk) but the following Sync fails, so Add returns an error and
+// the caller retries the same Add. A retry that trusted stale in-memory
+// state would append the identical record a second time and leave the
+// log permanently unloadable ("duplicate add" at every future Load).
+// Add must instead reload from disk before checking, see the record
+// that's already there, and refuse the retry as a duplicate.
+func TestAddSurvivesSyncFailureOnRetry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
+
+	log, err := Open(path, WithClock(fixedClock(time.Now())))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = log.Close() }()
+
+	entry := testEntry(t, "irene")
+	log.w = &flakySync{File: log.f, failSyncOnce: true}
+
+	if err := log.Add(entry); err == nil {
+		t.Fatalf("Add: expected the simulated sync failure to surface")
+	}
+
+	if err := log.Add(entry); err == nil {
+		t.Fatalf("Add (retry after a sync failure): expected a duplicate error, not success")
+	}
+
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after the retried Add: %v, want the log to remain valid", err)
+	}
+	if _, state := set.Lookup(entry.CredentialID); state != StateActive {
+		t.Errorf("state = %v, want StateActive (the record was written exactly once)", state)
+	}
+}
+
+// TestSecondLogHandleSeesFirstsWrites covers scenario 3 from the finding
+// (two writers on the same path): log2 is Open'd, and only afterward does
+// log1 add a credential. log2's initial seed therefore predates that
+// write -- but Add must reload the file fresh each time, so log2 still
+// refuses to re-add the same credential rather than writing a duplicate
+// that would make the log unloadable.
+func TestSecondLogHandleSeesFirstsWrites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
+
+	log1, err := Open(path, WithClock(fixedClock(time.Now())))
+	if err != nil {
+		t.Fatalf("Open (log1): %v", err)
+	}
+	defer func() { _ = log1.Close() }()
+
+	log2, err := Open(path, WithClock(fixedClock(time.Now())))
+	if err != nil {
+		t.Fatalf("Open (log2): %v", err)
+	}
+	defer func() { _ = log2.Close() }()
+
+	entry := testEntry(t, "hank")
+	if err := log1.Add(entry); err != nil {
+		t.Fatalf("log1.Add: %v", err)
+	}
+
+	if err := log2.Add(entry); err == nil {
+		t.Fatalf("log2.Add (already added by log1): expected a duplicate error")
+	}
+
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, state := set.Lookup(entry.CredentialID); state != StateActive {
+		t.Errorf("state = %v, want StateActive", state)
+	}
+}
+
+// TestConcurrentLogsSerializeAndStayConsistent opens many Log handles on
+// the same path and adds a distinct credential from each concurrently.
+// Each Log handle has its own *os.File (its own open file description),
+// so this exercises the same flock-based serialization two separate
+// processes on the same path would rely on. Every add must succeed and
+// the log must stay loadable, with every credential present exactly
+// once.
+func TestConcurrentLogsSerializeAndStayConsistent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
+
+	const n = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			label := fmt.Sprintf("writer-%d", i)
+			log, err := Open(path, WithClock(fixedClock(time.Now())))
+			if err != nil {
+				errs <- fmt.Errorf("Open (%s): %w", label, err)
+				return
+			}
+			defer func() { _ = log.Close() }()
+			if err := log.Add(testEntry(t, label)); err != nil {
+				errs <- fmt.Errorf("Add (%s): %w", label, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("concurrent Add failed: %v", err)
+	}
+
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after concurrent adds: %v", err)
+	}
+	for i := 0; i < n; i++ {
+		id := []byte("cred-" + fmt.Sprintf("writer-%d", i))
+		if _, state := set.Lookup(id); state != StateActive {
+			t.Errorf("writer-%d: state = %v, want StateActive", i, state)
+		}
+	}
+}
+
+// TestLoadIgnoresUnterminatedTrailingLine covers scenario 2 from the
+// finding: a write that is cut short leaves a final line with no
+// trailing newline. Load must tolerate exactly that shape -- treating it
+// as not-yet-committed rather than corruption -- while still returning
+// everything that was cleanly committed before it.
+func TestLoadIgnoresUnterminatedTrailingLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
+
+	good := `{"op":"add","credential_id":"aGVsbG8","public_key":"` +
+		rawTestPublicKeyBase64(t, "torn-good") +
+		`","alg":"ES256","rp_id":"stet","aaguid":"0102030405060708090a0b0c0d0e0f10","label":"x","at":"2026-01-02T03:04:05Z"}` + "\n"
+	// No closing brace and no trailing newline: simulates a write that
+	// stopped part-way through the next record.
+	torn := `{"op":"add","credential_id":"partial`
+	if err := os.WriteFile(path, []byte(good+torn), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load with an unterminated trailing record: %v, want it tolerated as not-yet-committed", err)
+	}
+	if _, state := set.Lookup([]byte("hello")); state != StateActive {
+		t.Errorf("the earlier, complete record: state = %v, want StateActive", state)
+	}
+}
+
+// TestAddRefusesToAppendPastUnterminatedTrailingLine covers the write
+// side of the same scenario: Add/Revoke must not blindly append after a
+// dangling, uncommitted fragment. Doing so would glue the new record
+// onto it, turning a harmless line Load already ignores into a
+// permanently unparseable one that would poison every future Load.
+func TestAddRefusesToAppendPastUnterminatedTrailingLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trusted-keys.jsonl")
+
+	torn := `{"op":"add","credential_id":"partial`
+	if err := os.WriteFile(path, []byte(torn), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	log, err := Open(path, WithClock(fixedClock(time.Now())))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = log.Close() }()
+
+	if err := log.Add(testEntry(t, "torn-new")); err == nil {
+		t.Fatalf("Add onto a log with an unterminated trailing record: expected an error")
+	}
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(before) != torn {
+		t.Errorf("file changed after a refused Add: got %q, want unchanged %q", before, torn)
 	}
 }

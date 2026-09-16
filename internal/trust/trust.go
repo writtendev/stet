@@ -4,19 +4,38 @@
 // log is a local file, and lookups never leave the machine.
 //
 // Add and Revoke each write one record and fsync, but they are not dumb
-// appenders: before writing, each checks the record against the log's
-// current cumulative state (tracked in memory, seeded from Load when the
-// log is Open'd) and refuses to write anything Load would later reject.
-// That keeps an invalid record from ever reaching disk, so one bad
-// enrollment or typo'd revoke can't poison every future Load with no
-// append-only way to recover. Loading the file (Load) independently
-// replays every record in order and is where inconsistency is caught as
-// defense in depth: a duplicate add, an add of a previously-revoked
-// credential (by credential ID, or by the same underlying public key
-// reappearing under a new credential ID), a revoke of an unknown
-// credential, or an unrecognized op are all load errors. There is no
-// delete or rewrite API; a mistaken add is corrected by revoking it, never
-// by editing the file.
+// appenders: before writing, each takes an exclusive advisory lock
+// (flock) on the file, re-reads and replays the file's *current* on-disk
+// contents from scratch (never a cached copy), and checks the record
+// against that fresh state before appending — the same checks Load
+// applies. Locking plus a fresh reload on every call is what keeps an
+// invalid record from ever reaching disk even when one Log handle's view
+// of the file could otherwise be stale:
+//
+//   - a Sync that fails after the Write it followed already landed on
+//     disk (the caller sees an error and naturally retries the same
+//     Add/Revoke; the retry's fresh reload sees the record that's
+//     already there and refuses the duplicate instead of writing it
+//     again);
+//   - two Log handles open on the same path, in this process or two
+//     separate processes, one of which predates a write the other made
+//     (the flock serializes them, and each reload picks up what the
+//     other wrote).
+//
+// Loading the file (Load) independently replays every record in order
+// and is where inconsistency is caught as defense in depth: a duplicate
+// add, an add of a previously-revoked credential (by credential ID, or by
+// the same underlying public key reappearing under a new credential ID),
+// a revoke of an unknown credential, or an unrecognized op are all load
+// errors. The one exception is a final line with no trailing newline: a
+// write that was cut short part-way through a record (e.g. ENOSPC) leaves
+// exactly that shape, so Load treats it as not-yet-committed and drops it
+// rather than failing the whole log. Add and Revoke, however, refuse to
+// write anything more once they see that shape, rather than silently
+// gluing a new record onto the dangling fragment — doing that would turn
+// a harmless, ignorable tail into a permanently unparseable line. There
+// is no delete or rewrite API, including for that dangling fragment; a
+// mistaken add is corrected by revoking it, never by editing the file.
 //
 // Entries do not carry a hardware attestation trust class (e.g. "YubiKey
 // series 5" vs "unknown"); that classification is STET-6's decision, made
@@ -24,16 +43,17 @@
 package trust
 
 import (
-	"bufio"
+	"bytes"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/writtendev/stet/internal/fido"
@@ -129,15 +149,27 @@ type opHeader struct {
 	Op string `json:"op"`
 }
 
+// syncer is the subset of *os.File that appendLocked needs to commit a
+// record: write its bytes, then fsync. It exists so tests can substitute
+// a fake that fails Sync (or Write) on demand, to exercise the
+// write-succeeds-but-sync-fails recovery path without needing real disk
+// pressure or I/O errors.
+type syncer interface {
+	Write([]byte) (int, error)
+	Sync() error
+}
+
 // Log is an append-only writer for the trust log file.
 type Log struct {
+	// mu serializes Add/Revoke calls against this one Log handle (e.g.
+	// from concurrent goroutines in this process). It does not, by
+	// itself, serialize against a different Log handle open on the same
+	// path — that is flock's job, taken fresh inside each Add/Revoke.
 	mu    sync.Mutex
+	path  string
 	f     *os.File
+	w     syncer
 	clock func() time.Time
-	// set mirrors the log's cumulative on-disk state (seeded from Load at
-	// Open time and advanced after each successful append), so Add and
-	// Revoke can validate a record before it is written.
-	set *Set
 }
 
 // Option configures a Log opened with Open.
@@ -153,25 +185,29 @@ func WithClock(clock func() time.Time) Option {
 // Open opens (creating if necessary) the trust log at path for appending.
 // The file and its parent directory are created with owner-only
 // permissions. Open also loads the log's existing contents (as Load
-// would) to seed the in-memory state Add and Revoke validate against; an
-// already-corrupt log fails closed here rather than accepting more writes
-// on top of it.
+// would): an already-corrupt log fails closed here rather than accepting
+// more writes on top of it. That initial load is only a fail-fast check,
+// though — Add and Revoke never trust it, or any other cached view of the
+// file; each re-reads the file from scratch under an exclusive lock
+// before validating and writing.
 func Open(path string, opts ...Option) (*Log, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("trust: create %s: %w", filepath.Dir(path), err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	// O_RDWR (not O_WRONLY): Add/Revoke read the file back under the
+	// flock, via this same handle, to reload its current contents before
+	// validating and appending.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("trust: open %s: %w", path, err)
 	}
 
-	set, err := Load(path)
-	if err != nil {
+	if _, err := Load(path); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("trust: load existing log %s: %w", path, err)
 	}
 
-	l := &Log{f: f, clock: time.Now, set: set}
+	l := &Log{path: path, f: f, w: f, clock: time.Now}
 	for _, opt := range opts {
 		opt(l)
 	}
@@ -183,15 +219,28 @@ func (l *Log) Close() error {
 	return l.f.Close()
 }
 
-// Add appends an "add" record for e. Before writing, Add checks e against
-// the log's current cumulative state (the same checks Load applies) and
-// refuses to write a record that state would reject — a duplicate
-// credential ID, a credential ID or public key that was previously
-// revoked, an unrecognized algorithm, an unparseable public key, or an
-// empty credential ID. That way an invalid record never reaches disk.
+// Add appends an "add" record for e. Add takes an exclusive lock on the
+// file, re-reads and replays its current on-disk contents, and checks e
+// against that fresh state (the same checks Load applies) before
+// writing — a duplicate credential ID, a credential ID or public key
+// that was previously revoked, an unrecognized algorithm, an unparseable
+// public key, or an empty credential ID are all refused. That way an
+// invalid record never reaches disk, and the check can't go stale
+// relative to a write this or another Log handle already made.
 func (l *Log) Add(e Entry) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	unlock, err := l.lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	set, err := l.reloadLocked()
+	if err != nil {
+		return err
+	}
 
 	rec := addRecord{
 		Op:           "add",
@@ -204,24 +253,30 @@ func (l *Log) Add(e Entry) error {
 		At:           l.clock().UTC().Format(time.RFC3339),
 	}
 
-	if _, _, err := l.set.checkAdd(rec); err != nil {
+	if _, _, err := set.checkAdd(rec); err != nil {
 		return fmt.Errorf("trust: %w", err)
 	}
-	if err := l.appendLocked(rec); err != nil {
-		return err
-	}
-	// checkAdd already validated rec against l.set above, so this cannot
-	// fail; applyAdd just commits the same result to the in-memory state.
-	return l.set.applyAdd(rec)
+	return l.appendLocked(rec)
 }
 
-// Revoke appends a "revoke" record for credentialID. Like Add, it checks
-// the log's current cumulative state first and refuses to write a revoke
-// of an unknown or already-revoked credential ID, so an invalid record
-// never reaches disk.
+// Revoke appends a "revoke" record for credentialID. Like Add, it takes
+// an exclusive lock, re-reads the file's current contents, and refuses a
+// revoke of an unknown or already-revoked credential ID against that
+// fresh state, so an invalid record never reaches disk.
 func (l *Log) Revoke(credentialID []byte, reason string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	unlock, err := l.lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	set, err := l.reloadLocked()
+	if err != nil {
+		return err
+	}
 
 	rec := revokeRecord{
 		Op:           "revoke",
@@ -230,17 +285,54 @@ func (l *Log) Revoke(credentialID []byte, reason string) error {
 		At:           l.clock().UTC().Format(time.RFC3339),
 	}
 
-	if _, err := l.set.checkRevoke(rec); err != nil {
+	if _, err := set.checkRevoke(rec); err != nil {
 		return fmt.Errorf("trust: %w", err)
 	}
-	if err := l.appendLocked(rec); err != nil {
-		return err
-	}
-	return l.set.applyRevoke(rec)
+	return l.appendLocked(rec)
 }
 
-// appendLocked marshals and writes rec, fsyncing before it returns. Callers
-// must hold l.mu.
+// lockFile takes an exclusive advisory lock (flock) on the log file, so
+// that "reload current state, validate, append, fsync" runs as one
+// atomic-enough unit against any other Log handle on the same path —
+// whether that handle lives in this process or another. It returns a
+// function that releases the lock; callers must hold l.mu and call the
+// returned function before returning.
+func (l *Log) lockFile() (func(), error) {
+	if err := syscall.Flock(int(l.f.Fd()), syscall.LOCK_EX); err != nil {
+		return nil, fmt.Errorf("trust: lock %s: %w", l.path, err)
+	}
+	return func() {
+		_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	}, nil
+}
+
+// reloadLocked re-reads the log file from scratch (never a cached view)
+// and replays it into a fresh Set, the same way Load does — including
+// Load's tolerance of a final, newline-less line as a not-yet-committed
+// write that was cut short. It additionally refuses to proceed at all
+// when the file's raw tail is in that shape: Add/Revoke must not append
+// anything while a dangling, uncommitted fragment sits at the end, since
+// doing so would glue the new record onto it and turn a harmless,
+// ignorable fragment into a permanently unparseable line. Callers must
+// hold l.mu and the flock (see lockFile).
+func (l *Log) reloadLocked() (*Set, error) {
+	if _, err := l.f.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("trust: seek %s: %w", l.path, err)
+	}
+	data, err := io.ReadAll(l.f)
+	if err != nil {
+		return nil, fmt.Errorf("trust: read %s: %w", l.path, err)
+	}
+
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		return nil, fmt.Errorf("trust: %s ends in an unterminated record (a previous write was likely cut short); refusing to append until it is resolved", l.path)
+	}
+
+	return loadRecords(data, l.path)
+}
+
+// appendLocked marshals and writes rec, fsyncing before it returns.
+// Callers must hold l.mu and the flock (see lockFile).
 func (l *Log) appendLocked(rec any) error {
 	b, err := json.Marshal(rec)
 	if err != nil {
@@ -248,10 +340,13 @@ func (l *Log) appendLocked(rec any) error {
 	}
 	b = append(b, '\n')
 
-	if _, err := l.f.Write(b); err != nil {
+	if _, err := l.w.Write(b); err != nil {
 		return fmt.Errorf("trust: write record: %w", err)
 	}
-	return l.f.Sync()
+	if err := l.w.Sync(); err != nil {
+		return fmt.Errorf("trust: sync record: %w", err)
+	}
+	return nil
 }
 
 // storedKey is a Key plus its current trust state.
@@ -299,30 +394,52 @@ func (s *Set) VerifyAssertion(rpID string, a *fido.Assertion, opts fido.VerifyOp
 // Load reads and replays the trust log at path, returning the resulting
 // Set. A path that does not exist yet loads as an empty, valid Set (a
 // fresh trust list before any enrollment). Load returns an error at the
-// first record that does not make sense against everything before it:
-// invalid JSON, an unknown op, a duplicate add, an add of a
-// previously-revoked credential, or a revoke of an unknown or
-// already-revoked credential.
+// first complete (newline-terminated) record that does not make sense
+// against everything before it: invalid JSON, an unknown op, a duplicate
+// add, an add of a previously-revoked credential, or a revoke of an
+// unknown or already-revoked credential.
+//
+// A final line with no trailing newline is the exception: it is the
+// shape a write leaves when it is cut short part-way through a record
+// (for example, ENOSPC), so Load treats it as not-yet-committed and
+// silently drops it rather than failing the whole log over it.
 func Load(path string) (*Set, error) {
-	set := &Set{keys: make(map[string]*storedKey), byPubKey: make(map[string]*storedKey)}
-
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return set, nil
+			return &Set{keys: make(map[string]*storedKey), byPubKey: make(map[string]*storedKey)}, nil
 		}
 		return nil, fmt.Errorf("trust: open %s: %w", path, err)
 	}
-	defer func() { _ = f.Close() }()
+	return loadRecords(data, path)
+}
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+// loadRecords replays the JSONL content in data, as read from the trust
+// log at path (path is used only in error messages), returning the
+// resulting Set.
+//
+// If data does not end in a newline, its final, unterminated line is
+// dropped before replay: that shape means the write that produced it was
+// cut short, so the line is treated as not-yet-committed rather than as
+// corruption. Every remaining, newline-terminated line is still replayed
+// strictly.
+func loadRecords(data []byte, path string) (*Set, error) {
+	set := &Set{keys: make(map[string]*storedKey), byPubKey: make(map[string]*storedKey)}
+
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+			data = data[:i+1]
+		} else {
+			// The entire file is one unterminated line: nothing in it
+			// has ever been committed.
+			data = nil
+		}
+	}
 
 	lineNum := 0
-	for scanner.Scan() {
+	for _, line := range bytes.Split(data, []byte("\n")) {
 		lineNum++
-		line := scanner.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 
@@ -351,9 +468,6 @@ func Load(path string) (*Set, error) {
 		default:
 			return nil, fmt.Errorf("trust: %s:%d: unknown op %q", path, lineNum, head.Op)
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("trust: read %s: %w", path, err)
 	}
 
 	return set, nil
