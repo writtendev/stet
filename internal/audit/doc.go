@@ -23,12 +23,16 @@
 // Headline: (merged PRs lacking meaningful review, plus direct pushes —
 // first-parent commits on the default branch not associated with any
 // merged PR's commits) divided by (merged PRs + direct pushes), over
-// the report's window. A PR contributes every first-parent commit up to
-// its total commit count, ending at the commit GitHub reports as its
-// merge commit, so a rebase-merged PR's other landed commits are not
-// miscounted as direct pushes. A PR dropped by --limit or by the
-// GraphQL pagination window cannot be associated this way, and its
-// commits are counted as direct pushes.
+// the report's window. Every PR's own landed commit (the one GitHub
+// reports as its merge commit) is associated with it; for a rebase
+// merge, the other commits it replays onto the first-parent chain are
+// too, matched positively by author and message rather than by trusting
+// a commit count, so they are not miscounted as direct pushes — and,
+// symmetrically, a squash or merge-commit PR's unrelated neighbours are
+// not swept in as if they belonged to it either (see countDirectPushes
+// in compute.go). A PR dropped by --limit or by the GraphQL pagination
+// window cannot be associated this way, and its commits are counted as
+// direct pushes.
 //
 // Self-merge: a PR whose MergedByLogin equals its AuthorLogin,
 // case-insensitively.

@@ -15,7 +15,12 @@ import (
 type Input struct {
 	Repo          string
 	DefaultBranch string
-	Months        int
+	// DefaultBranchFallback is non-empty when DefaultBranch is not
+	// actually the remote's default branch, but a fallback (the current
+	// branch, or HEAD) used because the remote's could not be resolved.
+	// Threaded straight into Report.Sources.DefaultBranchFallback.
+	DefaultBranchFallback string
+	Months                int
 
 	Commits []gitlocal.Commit
 
@@ -42,6 +47,7 @@ func Build(in Input, now time.Time) Report {
 			Git:                     true,
 			GitHub:                  in.GitHubAvailable,
 			GitHubUnavailableReason: in.GitHubUnavailableReason,
+			DefaultBranchFallback:   in.DefaultBranchFallback,
 		},
 		TokenSource:   in.TokenSource,
 		Signatures:    computeSignatures(in.Commits),
@@ -206,23 +212,42 @@ func bucketFor(d time.Duration) string {
 }
 
 // countDirectPushes counts first-parent default-branch commits not
-// associated with any fetched merged PR. A PR contributes its own commit
-// count (TotalCommits) worth of first-parent commits ending at its
-// MergeCommitSHA: for squash and merge-commit strategies that is just the
-// one landed commit, but for a rebase merge GitHub lands every rebased
-// commit as its own first-parent commit and only the last one is
-// reported as MergeCommitSHA, so counting just that single SHA would
-// wrongly count the other rebased commits as direct pushes. Any
-// first-parent commit that is not associated with a PR this way is a
-// direct push, including a true merge commit pushed straight to the
-// branch (e.g. a local `git merge && git push`) -- unlike a bare
-// !IsMerge() check, this does not exempt merge commits just because they
-// have two parents.
+// associated with any fetched merged PR. Every PR's own landed commit
+// (MergeCommitSHA) is associated with it, whatever merge strategy landed
+// it. What else gets associated depends on that strategy, which is not
+// reported directly by the GitHub API and so is inferred:
+//
+//   - Merge commit: the landed commit has two parents. Its other PR
+//     commits live on the second-parent side (the feature branch's own
+//     history), never on the base branch's first-parent chain, so
+//     nothing further is claimed.
+//   - Squash and rebase merge both land a single-parent commit at that
+//     same point, indistinguishable from each other by parent count
+//     alone. A rebase merge additionally replays every other commit
+//     from the PR's branch onto the first-parent chain immediately
+//     beneath it, each keeping its original author and message (only
+//     the committer and, because its parent changed, its SHA differ);
+//     a squash merge's single landed commit carries a synthesized
+//     message and claims nothing else. So telling them apart needs
+//     positive evidence, not a trusted count: walk backwards from the
+//     landed commit and only claim a first-parent commit when it
+//     matches one of the PR's own fetched commits (PR.Commits) by
+//     author email and message, stopping the moment one doesn't. A
+//     squash merge's landed commit never matches its own neighbour this
+//     way, so nothing beyond it is claimed and a real direct push
+//     directly beneath it still counts.
+//
+// Any first-parent commit left unassociated is a direct push, including
+// a true merge commit pushed straight to the branch (e.g. a local
+// `git merge && git push`) -- unlike a bare !IsMerge() check, this does
+// not exempt merge commits just because they have two parents.
 //
 // A PR whose merge commit falls outside in.Commits (dropped by --limit,
-// or by the GraphQL pagination window) cannot be associated and its
-// commits are counted as direct pushes; widen --limit or --months to
-// avoid this.
+// or by the GraphQL pagination window), or whose commits exceed the
+// GraphQL query's own per-PR cap (see mergedPRsQuery), cannot be fully
+// associated this way and any of its commits left out are counted as
+// direct pushes; widen --limit or --months, or check the cap, to avoid
+// this.
 func countDirectPushes(commits []gitlocal.Commit, prs []github.PR) int {
 	indexBySHA := make(map[string]int, len(commits))
 	for i, c := range commits {
@@ -238,12 +263,25 @@ func countDirectPushes(commits []gitlocal.Commit, prs []github.PR) int {
 		if !ok {
 			continue
 		}
-		n := pr.TotalCommits
-		if n < 1 {
-			n = 1
+		associated[commits[idx].SHA] = true
+
+		if commits[idx].IsMerge() {
+			// Merge-commit strategy: this PR's other commits live on the
+			// second-parent side, never on the base branch's first-parent
+			// chain, so it contributes nothing further.
+			continue
 		}
-		for i := idx; i < len(commits) && i < idx+n; i++ {
+
+		remaining := make([]github.PRCommit, len(pr.Commits))
+		copy(remaining, pr.Commits)
+
+		for i := idx + 1; i < len(commits); i++ {
+			j := matchingPRCommit(remaining, commits[i])
+			if j == -1 {
+				break
+			}
 			associated[commits[i].SHA] = true
+			remaining = append(remaining[:j], remaining[j+1:]...)
 		}
 	}
 
@@ -254,6 +292,26 @@ func countDirectPushes(commits []gitlocal.Commit, prs []github.PR) int {
 		}
 	}
 	return directPushes
+}
+
+// matchingPRCommit returns the index into prCommits of the entry that
+// positively identifies c as one of that PR's own commits -- author
+// email and message both matching -- or -1 if none does.
+func matchingPRCommit(prCommits []github.PRCommit, c gitlocal.Commit) int {
+	msg := strings.TrimSpace(c.Message)
+	if msg == "" {
+		// A real commit always has at least a one-line message; refuse to
+		// match on a blank one so two otherwise-unrelated zero-valued
+		// commits can never look like a match.
+		return -1
+	}
+	for i, pc := range prCommits {
+		if strings.TrimSpace(pc.Message) == msg &&
+			strings.EqualFold(strings.TrimSpace(pc.AuthorEmail), strings.TrimSpace(c.AuthorEmail)) {
+			return i
+		}
+	}
+	return -1
 }
 
 func buildGitHubTier(report *Report, in Input) {

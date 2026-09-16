@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -211,6 +212,16 @@ func TestCountDirectPushesAssociatesRebaseMergedCommits(t *testing.T) {
 	pr := basePR(30)
 	pr.MergeCommitSHA = "r3"
 	pr.TotalCommits = 3
+	// A rebase merge replays each original commit under a new SHA and
+	// committer, keeping author identity and message intact -- that
+	// identity is what lets countDirectPushes positively associate r2
+	// and r1 with this PR even though only r3 is known to GitHub as its
+	// MergeCommitSHA.
+	pr.Commits = []github.PRCommit{
+		{Message: "feat: part one", AuthorEmail: "dev@example.com"},
+		{Message: "feat: part two", AuthorEmail: "dev@example.com"},
+		{Message: "feat: part three", AuthorEmail: "dev@example.com"},
+	}
 
 	// Newest-first, as gitlocal.FirstParentLog returns them: r3 is the
 	// commit GitHub reports as MergeCommitSHA (the last rebased commit);
@@ -218,10 +229,10 @@ func TestCountDirectPushesAssociatesRebaseMergedCommits(t *testing.T) {
 	// and must not be counted as direct pushes even though only r3's SHA
 	// is known to GitHub as belonging to this PR.
 	commits := []gitlocal.Commit{
-		{SHA: "r3", CommittedAt: t0("2025-06-03T00:00:00Z")},
-		{SHA: "r2", CommittedAt: t0("2025-06-02T12:00:00Z")},
-		{SHA: "r1", CommittedAt: t0("2025-06-02T00:00:00Z")},
-		{SHA: "direct1", CommittedAt: t0("2025-06-01T00:00:00Z")},
+		{SHA: "r3", Message: "feat: part three", AuthorEmail: "dev@example.com", CommittedAt: t0("2025-06-03T00:00:00Z")},
+		{SHA: "r2", Message: "feat: part two", AuthorEmail: "dev@example.com", CommittedAt: t0("2025-06-02T12:00:00Z")},
+		{SHA: "r1", Message: "feat: part one", AuthorEmail: "dev@example.com", CommittedAt: t0("2025-06-02T00:00:00Z")},
+		{SHA: "direct1", Message: "chore: unrelated direct push", AuthorEmail: "other@example.com", CommittedAt: t0("2025-06-01T00:00:00Z")},
 	}
 
 	n := countDirectPushes(commits, []github.PR{pr})
@@ -240,6 +251,59 @@ func TestCountDirectPushesCountsUnassociatedMergeCommit(t *testing.T) {
 	n := countDirectPushes(commits, nil)
 	if n != 1 {
 		t.Errorf("expected an unassociated merge commit to count as a direct push, got %d", n)
+	}
+}
+
+func TestCountDirectPushesMergeCommitStrategyClaimsOnlyTheLandedCommit(t *testing.T) {
+	// A true "merge commit" strategy PR's landed commit has two parents;
+	// its other commits live on the second-parent side, never the base
+	// branch's first-parent chain, so nothing beneath it should be
+	// claimed even when TotalCommits/Commits says the PR had more than
+	// one commit.
+	pr := basePR(31)
+	pr.MergeCommitSHA = "m1"
+	pr.TotalCommits = 2
+	pr.Commits = []github.PRCommit{
+		{Message: "feat: a", AuthorEmail: "dev@example.com"},
+		{Message: "feat: b", AuthorEmail: "dev@example.com"},
+	}
+
+	commits := []gitlocal.Commit{
+		{SHA: "m1", Parents: []string{"prevtip", "branchtip"}, CommittedAt: t0("2025-06-02T00:00:00Z")},
+		{SHA: "direct1", Message: "chore: real direct push", AuthorEmail: "other@example.com", CommittedAt: t0("2025-06-01T00:00:00Z")},
+	}
+
+	n := countDirectPushes(commits, []github.PR{pr})
+	if n != 1 {
+		t.Errorf("expected the 1 direct push beneath the merge commit to still count, got %d", n)
+	}
+}
+
+func TestCountDirectPushesSquashMergeDoesNotAbsorbCommitBeneathIt(t *testing.T) {
+	// A squash-merged PR with many commits on its branch lands as a
+	// single first-parent commit whose message is GitHub's synthesized
+	// squash message, not any individual original commit's -- so it must
+	// not absorb the real direct push sitting directly beneath it just
+	// because TotalCommits says the branch had 20 commits.
+	pr := basePR(32)
+	pr.MergeCommitSHA = "squash1"
+	pr.TotalCommits = 20
+	pr.Commits = make([]github.PRCommit, 20)
+	for i := range pr.Commits {
+		pr.Commits[i] = github.PRCommit{
+			Message:     fmt.Sprintf("wip commit %d", i),
+			AuthorEmail: "dev@example.com",
+		}
+	}
+
+	commits := []gitlocal.Commit{
+		{SHA: "squash1", Message: "feat: squashed PR #32 (#32)", AuthorEmail: "dev@example.com", CommittedAt: t0("2025-06-02T00:00:00Z")},
+		{SHA: "direct1", Message: "chore: real direct push right beneath the squash commit", AuthorEmail: "other@example.com", CommittedAt: t0("2025-06-01T00:00:00Z")},
+	}
+
+	n := countDirectPushes(commits, []github.PR{pr})
+	if n != 1 {
+		t.Errorf("expected the direct push beneath the squash commit to still count, got %d", n)
 	}
 }
 
