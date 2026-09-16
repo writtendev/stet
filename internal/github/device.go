@@ -28,7 +28,7 @@ var OAuthClientID string
 // write access), a deliberate tradeoff for private-repo support over
 // least privilege; a public-only deployment could use "public_repo"
 // instead.
-const deviceScopes = "repo read:org"
+const deviceScopes = "repo"
 
 // CodeHost is where device.go's endpoints live. Overridable in tests.
 type CodeHost struct {
