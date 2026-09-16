@@ -129,14 +129,23 @@ func runAudit(cmd *cobra.Command, flags auditFlags, deps auditDeps) error {
 	// falling back to whatever is actually checked out. defaultBranchErr
 	// is threaded through to resolveGitHubTier, since a GitHub tier query
 	// needs the real default branch name and cannot run on this fallback.
+	// defaultBranchFallback records the same fallback for the report
+	// itself -- unconditionally, unlike GitHubUnavailableReason, so it is
+	// still surfaced under --offline (where GitHubUnavailableReason says
+	// only "skipped: --offline" and would otherwise drop this entirely).
 	defaultBranch, defaultBranchErr := repo.DefaultBranch(ctx, flags.remote)
 	logRef := fmt.Sprintf("refs/remotes/%s/%s", flags.remote, defaultBranch)
+	var defaultBranchFallback string
 	if defaultBranchErr != nil {
 		defaultBranch, err = repo.CurrentBranch(ctx)
 		if err != nil {
 			return fmt.Errorf("audit: %w", err)
 		}
 		logRef = defaultBranch
+		defaultBranchFallback = fmt.Sprintf(
+			"could not resolve remote %q's default branch (%v); reporting against %q (current branch/HEAD) instead",
+			flags.remote, defaultBranchErr, defaultBranch,
+		)
 	}
 
 	now := deps.now()
@@ -161,9 +170,10 @@ func runAudit(cmd *cobra.Command, flags auditFlags, deps auditDeps) error {
 	}
 
 	input := audit.Input{
-		DefaultBranch: defaultBranch,
-		Months:        months,
-		Commits:       commits,
+		DefaultBranch:         defaultBranch,
+		DefaultBranchFallback: defaultBranchFallback,
+		Months:                months,
+		Commits:               commits,
 	}
 
 	remoteURL, remoteErr := repo.RemoteURL(ctx, flags.remote)

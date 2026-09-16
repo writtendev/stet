@@ -21,6 +21,11 @@ func Render(w io.Writer, report Report) error {
 	if err := writeln(w, ui.KeyValue("Default Branch", report.DefaultBranch)); err != nil {
 		return err
 	}
+	if report.Sources.DefaultBranchFallback != "" {
+		if err := writeln(w, ui.Warn(report.Sources.DefaultBranchFallback)); err != nil {
+			return err
+		}
+	}
 	if err := writeln(w, ui.KeyValue("Window", fmt.Sprintf(
 		"%d months (%s to %s)", report.Window.Months,
 		report.Window.Since.Format("2006-01-02"), report.Window.Until.Format("2006-01-02"),

@@ -138,6 +138,99 @@ func TestAuditLocalOnlyRepoDegradesGracefully(t *testing.T) {
 	}
 }
 
+func TestAuditOfflineDefaultBranchFallbackIsSurfaced(t *testing.T) {
+	globals.json = true
+	globals.verbose = false
+	defer func() { globals.json = false }()
+
+	// --offline sets GitHubUnavailableReason to "skipped: --offline",
+	// which says nothing about the default branch having also fallen
+	// back to the current branch/HEAD -- that must still be surfaced
+	// independently, or a consumer reading default_branch: "main" would
+	// have no way to know it is actually reporting against a feature
+	// branch (no remote at all here means DefaultBranch can't resolve).
+	deps := auditDeps{
+		dir:    tempLocalOnlyRepo(t),
+		env:    fakeEnv{},
+		runner: failingRunner{fail: func(msg string) { t.Error(msg) }},
+		newClient: func(token string) github.Client {
+			t.Fatal("newClient should never be called with --offline")
+			return nil
+		},
+		now: func() time.Time { return time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC) },
+	}
+
+	out, err := executeAuditCmd(deps, "--offline")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\noutput: %s", err, out)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid json: %v, raw: %s", err, out)
+	}
+	sources, ok := payload["sources"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a sources object, got: %v", payload["sources"])
+	}
+	if reason, _ := sources["github_unavailable_reason"].(string); reason != "skipped: --offline" {
+		t.Errorf("expected github_unavailable_reason %q, got %q", "skipped: --offline", reason)
+	}
+	fallback, _ := sources["default_branch_fallback"].(string)
+	if fallback == "" {
+		t.Error("expected a non-empty default_branch_fallback even under --offline")
+	}
+}
+
+func TestAuditEmptyRepoDegradesGracefully(t *testing.T) {
+	globals.json = true
+	globals.verbose = false
+	defer func() { globals.json = false }()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found on PATH")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	// A fresh `git init` with no commits at all: an unborn HEAD. Only
+	// "not a git repo" is meant to be fatal, so this must still produce
+	// a (empty) report rather than erroring out.
+	run("init", "--initial-branch=main")
+
+	deps := auditDeps{
+		dir:    dir,
+		env:    fakeEnv{},
+		runner: failingRunner{fail: func(msg string) { t.Error(msg) }},
+		newClient: func(token string) github.Client {
+			t.Fatal("newClient should never be called when there is no remote to query")
+			return nil
+		},
+		now: func() time.Time { return time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC) },
+	}
+
+	out, err := executeAuditCmd(deps)
+	if err != nil {
+		t.Fatalf("a fresh repo with no commits must degrade gracefully, not fail: %v\noutput: %s", err, out)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid json: %v, raw: %s", err, out)
+	}
+	if payload["default_branch"] != "main" {
+		t.Errorf("expected default_branch to fall back to the current branch %q, got %v", "main", payload["default_branch"])
+	}
+	signatures, ok := payload["signatures"].(map[string]any)
+	if !ok || signatures["commits"] != float64(0) {
+		t.Errorf("expected zero commits for a repo with nothing committed yet, got: %+v", payload["signatures"])
+	}
+}
+
 func TestAuditLogsRemoteTrackingRefNotLocalBranch(t *testing.T) {
 	globals.json = true
 	globals.verbose = false

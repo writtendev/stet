@@ -16,6 +16,15 @@ type Sources struct {
 	Git                     bool   `json:"git"`
 	GitHub                  bool   `json:"github"`
 	GitHubUnavailableReason string `json:"github_unavailable_reason,omitempty"`
+	// DefaultBranchFallback is non-empty whenever DefaultBranch could not
+	// be resolved against the remote and the report fell back to the
+	// current branch (or HEAD): it names why and what was used instead,
+	// so a consumer never mistakes a feature branch's numbers for the
+	// default branch's. Set independently of GitHubUnavailableReason --
+	// in particular, it is still reported with --offline, where
+	// GitHubUnavailableReason is "skipped: --offline" and would otherwise
+	// say nothing about this.
+	DefaultBranchFallback string `json:"default_branch_fallback,omitempty"`
 }
 
 // Headline is the report's single most important number: the share of

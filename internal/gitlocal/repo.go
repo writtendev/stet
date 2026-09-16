@@ -22,6 +22,13 @@ type Commit struct {
 	CommitterEmail string
 	CommittedAt    time.Time
 	Parents        []string
+	// Message is the commit's full raw message (git's %B: subject and
+	// body, trailers included). Used to positively match a rebase-merged
+	// commit replayed onto the base branch under a new SHA back to the
+	// original commit it came from, since a rebase only changes the
+	// parent (and so the hash and committer date) and keeps the author
+	// and message identical.
+	Message string
 	// Trailers holds RFC-822-style trailer lines found in the commit body
 	// (e.g. "Co-authored-by", "Signed-off-by"), keyed by trailer name with
 	// original casing preserved. A trailer may repeat, so each value is a
@@ -75,10 +82,18 @@ func (r *Repo) RemoteURL(ctx context.Context, remote string) (string, error) {
 // branch can be resolved, so the git tier can still run.
 func (r *Repo) CurrentBranch(ctx context.Context) (string, error) {
 	out, err := r.run(ctx, "rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil {
-		return "", fmt.Errorf("gitlocal: resolving current branch: %w", err)
+	if err == nil {
+		return strings.TrimSpace(out), nil
 	}
-	return strings.TrimSpace(out), nil
+	// `rev-parse --abbrev-ref HEAD` fails on an unborn HEAD (a brand-new
+	// repository with no commits yet): there is no commit for it to
+	// abbreviate a ref towards. The symbolic ref itself still resolves in
+	// that state, so fall back to reading it directly rather than failing
+	// a repo that simply has nothing committed yet.
+	if out, symErr := r.run(ctx, "symbolic-ref", "--short", "HEAD"); symErr == nil {
+		return strings.TrimSpace(out), nil
+	}
+	return "", fmt.Errorf("gitlocal: resolving current branch: %w", err)
 }
 
 // DefaultBranch resolves the default branch of remote: first via the
@@ -120,8 +135,15 @@ var logFormat = strings.Join([]string{
 
 // FirstParentLog returns the first-parent commit history of branch,
 // optionally limited to commits committed at or after since (a zero
-// since returns the full history).
+// since returns the full history). branch resolving to no commit at all
+// -- an unborn HEAD/branch in a brand-new repository with nothing
+// committed yet -- is not an error: it returns an empty history, so a
+// fresh `git init` still produces a report instead of a hard failure.
 func (r *Repo) FirstParentLog(ctx context.Context, branch string, since time.Time) ([]Commit, error) {
+	if _, err := r.run(ctx, "rev-parse", "--verify", "--quiet", branch); err != nil {
+		return nil, nil
+	}
+
 	args := []string{"log", "--first-parent", "--date=iso-strict", "--pretty=format:" + logFormat}
 	if !since.IsZero() {
 		args = append(args, "--since="+since.UTC().Format(time.RFC3339))
@@ -159,6 +181,7 @@ func (r *Repo) FirstParentLog(ctx context.Context, branch string, since time.Tim
 			CommitterEmail: fields[4],
 			CommittedAt:    committedAt,
 			Parents:        parents,
+			Message:        fields[8],
 			SigStatus:      fields[7],
 			Trailers:       parseTrailers(fields[8]),
 		})
