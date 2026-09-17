@@ -1,0 +1,29 @@
+{
+  "data": {
+    "repository": {
+      "pullRequests": {
+        "pageInfo": { "hasNextPage": false, "endCursor": "" },
+        "nodes": [
+          {
+            "number": 60,
+            "url": "https://github.com/writtendev/stet/pull/60",
+            "createdAt": "2025-06-01T00:00:00Z",
+            "updatedAt": "2025-06-04T00:12:00Z",
+            "mergedAt": "2025-06-04T00:15:00Z",
+            "author": { "login": "dana", "__typename": "User" },
+            "mergedBy": { "login": "reviewer" },
+            "mergeCommit": { "oid": "ccc3333333333333333333333333333333333c" },
+            "finalCommit": { "nodes": [ { "commit": { "committedDate": "2025-06-04T00:00:00Z" } } ] },
+            "readyForReview": { "nodes": [ { "createdAt": "2025-06-04T00:00:00Z" } ] },
+            "commitAuthors": { "totalCount": 1, "nodes": [ { "commit": { "authors": { "nodes": [ { "user": { "login": "dana" } } ] } } } ] },
+            "reviews": {
+              "nodes": [
+                { "author": { "login": "reviewer", "__typename": "User" }, "state": "APPROVED", "submittedAt": "2025-06-04T00:02:00Z" }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

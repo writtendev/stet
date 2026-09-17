@@ -152,18 +152,30 @@ func TestVerifyCmd(t *testing.T) {
 }
 
 func TestAuditCmd(t *testing.T) {
+	// --offline is used here (rather than exercising the full zero-config
+	// path) so this test never depends on network access, an ambient
+	// GH_TOKEN, or a `gh` login on the machine running it. audit_test.go
+	// covers the GitHub tier itself against fakes.
+	//
+	// The default branch is still resolved locally even offline, so this
+	// also chdirs into a hermetic repo rather than relying on whatever
+	// checkout this test binary happens to run inside: a shallow
+	// `actions/checkout` (as CI uses) never sets up
+	// refs/remotes/origin/HEAD, which real-repo resolution would need.
+	t.Chdir(tempAuditRepo(t))
+
 	t.Run("human output", func(t *testing.T) {
-		out, err := executeCommand("audit")
+		out, err := executeCommand("audit", "--offline")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.Contains(out, "stet audit") {
+		if !strings.Contains(out, "STET AUDIT") {
 			t.Errorf("expected audit header in output, got: %s", out)
 		}
 	})
 
 	t.Run("json output", func(t *testing.T) {
-		out, err := executeCommand("audit", "--json")
+		out, err := executeCommand("audit", "--offline", "--json")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -172,8 +184,12 @@ func TestAuditCmd(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &payload); err != nil {
 			t.Fatalf("invalid json output: %v, raw: %s", err, out)
 		}
-		if payload["command"] != "audit" || payload["status"] != "stubbed" {
-			t.Errorf("unexpected audit json payload: %+v", payload)
+		sources, ok := payload["sources"].(map[string]any)
+		if !ok || sources["github"] != false {
+			t.Errorf("expected sources.github == false with --offline, got: %+v", payload["sources"])
+		}
+		if payload["headline"] != nil {
+			t.Errorf("expected a null headline with --offline, got: %v", payload["headline"])
 		}
 	})
 }
