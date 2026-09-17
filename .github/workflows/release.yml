@@ -1,0 +1,186 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  verify-tag:
+    name: Verify tag is on main
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require tagged commit to be an ancestor of origin/main
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tagged commit $GITHUB_SHA is not an ancestor of origin/main; refusing to release an unreviewed commit"
+            exit 1
+          fi
+
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: verify-tag
+    if: |
+      always() && !cancelled() &&
+      (needs.verify-tag.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && needs.verify-tag.result == 'skipped'))
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install libfido2 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libfido2 pkg-config
+
+      - name: Install libfido2 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfido2-dev pkg-config
+
+      - name: Test
+        run: go test -tags libfido2 ./...
+
+      - name: Build (release)
+        if: github.event_name == 'push'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: build --single-target --clean --id stet
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+
+      - name: Build (dry run)
+        if: github.event_name != 'push'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: build --single-target --clean --id stet --snapshot
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+
+      - name: Collect prebuilt binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p "prebuilt/${GOOS}_${GOARCH}"
+          cp dist/stet_"${GOOS}"_"${GOARCH}"*/stet "prebuilt/${GOOS}_${GOARCH}/stet"
+
+      - name: Smoke test
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          bin="prebuilt/${GOOS}_${GOARCH}/stet"
+          out=$("$bin" version --json)
+          echo "$out"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            want="${GITHUB_REF_NAME#v}"
+            case "$out" in
+              *"$want"*) ;;
+              *) echo "::error::version output does not contain $want" && exit 1 ;;
+            esac
+          fi
+          echo "-- linkage --"
+          if [ "$(uname -s)" = "Darwin" ]; then
+            otool -L "$bin"
+          else
+            ldd "$bin"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: prebuilt/
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: [verify-tag, build]
+    if: |
+      always() && !cancelled() &&
+      (needs.verify-tag.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && needs.verify-tag.result == 'skipped')) &&
+      needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'push' && 'release' || 'release-dry-run' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: prebuilt-*
+          merge-multiple: true
+          path: prebuilt
+
+      - name: Make prebuilt binaries executable
+        run: chmod +x prebuilt/*/stet
+
+      - name: Release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: ${{ github.event_name == 'push' && 'release --clean' || 'release --snapshot --clean --skip=publish' }}
+        env:
+          STET_PREBUILT_DIR: prebuilt
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Upload dist (dry run inspection)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

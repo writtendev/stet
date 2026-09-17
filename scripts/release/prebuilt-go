@@ -1,0 +1,56 @@
+#!/bin/sh
+# prebuilt-go is goreleaser's `gobinary` shim for the `stet` release build.
+#
+# libfido2 is linked via cgo, so goreleaser cannot cross-compile the four
+# release targets from one machine; each is built natively on its own
+# runner instead (see .github/workflows/release.yml). Recombining those
+# binaries into a single `goreleaser release` would normally need
+# `--split/--merge` or `builder: prebuilt`, both Pro-only in goreleaser
+# v2.18.0. This shim stands in for `go` during that final release step:
+# for any command other than `build` it just execs the real `go`, and for
+# `build` it copies in the matching prebuilt binary from
+# $STET_PREBUILT_DIR/<GOOS>_<GOARCH>/stet instead of compiling anything.
+#
+# Invoked by goreleaser as: prebuilt-go build <flags...> -o <out> <main>
+# with GOOS/GOARCH set in the environment.
+set -eu
+
+if [ "${1:-}" != "build" ]; then
+    exec go "$@"
+fi
+
+if [ -z "${STET_PREBUILT_DIR:-}" ]; then
+    echo "prebuilt-go: STET_PREBUILT_DIR is not set" >&2
+    exit 1
+fi
+
+out=""
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = "-o" ]; then
+        out="$arg"
+        break
+    fi
+    prev="$arg"
+done
+
+if [ -z "$out" ]; then
+    echo "prebuilt-go: no -o <out> argument found in: $*" >&2
+    exit 1
+fi
+
+if [ -z "${GOOS:-}" ] || [ -z "${GOARCH:-}" ]; then
+    echo "prebuilt-go: GOOS and GOARCH must be set in the environment" >&2
+    exit 1
+fi
+
+src="$STET_PREBUILT_DIR/${GOOS}_${GOARCH}/stet"
+
+if [ ! -f "$src" ]; then
+    echo "prebuilt-go: missing prebuilt binary for ${GOOS}/${GOARCH}: $src" >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname "$out")"
+cp "$src" "$out"
+chmod +x "$out"

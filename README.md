@@ -1,5 +1,21 @@
 Hello, World.
 
+## Install
+
+```sh
+brew install writtendev/tap/stet
+```
+
+Homebrew is macOS-only for now: the Linux binary has no rpath into the
+Linuxbrew prefix, so `depends_on "libfido2"` in the formula doesn't make it
+loadable there. On Linux, use the tarballs from the
+[releases page](https://github.com/writtendev/stet/releases) instead.
+
+Linux tarballs are built on Ubuntu 24.04 and link against the system
+`libfido2`; they require glibc >= 2.39 and libfido2 >= 1.14 (`apt install
+libfido2-1` on 24.04+). Older distros (Ubuntu 22.04, Debian 12, etc.) ship
+older libfido2/glibc and will fail to load the binary.
+
 ## Building
 
 stet's hardware key support (`internal/fido`) is a cgo binding to
