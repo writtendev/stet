@@ -1,5 +1,15 @@
 Hello, World.
 
+## Install
+
+```sh
+brew install writtendev/tap/stet
+```
+
+Linux tarballs from the [releases page](https://github.com/writtendev/stet/releases)
+link against the system `libfido2`; install it separately, e.g.
+`apt install libfido2-1`.
+
 ## Building
 
 stet's hardware key support (`internal/fido`) is a cgo binding to

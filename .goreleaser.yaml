@@ -1,0 +1,77 @@
+version: 2
+
+project_name: stet
+
+builds:
+  - id: stet
+    main: ./cmd/stet
+    binary: stet
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/writtendev/stet/internal/version.Version={{ .Version }}
+    tags:
+      - libfido2
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # goreleaser normally invokes the real `go` toolchain here. The release
+    # workflow instead points this at scripts/release/prebuilt-go, a shim
+    # that copies in the binary each native runner already built for its own
+    # GOOS/GOARCH. That's required because libfido2 is linked via cgo, and
+    # open-source goreleaser cannot merge binaries built on separate
+    # machines (`--split/--merge` and `builder: prebuilt` are Pro-only).
+    # Without STET_PREBUILT_DIR set (local `goreleaser build --single-target`
+    # and each per-runner CI build), the shim passes straight through to the
+    # real `go`.
+    tool: '{{ if index .Env "STET_PREBUILT_DIR" }}./scripts/release/prebuilt-go{{ else }}go{{ end }}'
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+release:
+  github:
+    owner: writtendev
+    name: stet
+  prerelease: auto
+
+changelog:
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "Merge pull request"
+      - "Merge branch"
+
+brews:
+  - name: stet
+    repository:
+      owner: writtendev
+      name: homebrew-tap
+      token: "{{ index .Env \"HOMEBREW_TAP_GITHUB_TOKEN\" }}"
+    directory: Formula
+    homepage: https://github.com/writtendev/stet
+    description: "Git-native CLI for physical human attestation of code merges"
+    dependencies:
+      - name: libfido2
+    install: |
+      bin.install "stet"
+    test: |
+      system "#{bin}/stet", "version"
+    skip_upload: auto
+    commit_author:
+      name: stet-release-bot
+      email: release@writtendev.dev

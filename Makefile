@@ -19,7 +19,7 @@ FIDO2 := $(shell pkg-config --exists libfido2 && echo 1 || echo 0)
 endif
 TAGS := $(if $(filter 1,$(FIDO2)),libfido2,)
 
-.PHONY: all build test lint check install clean
+.PHONY: all build test lint check install clean release-snapshot
 
 all: check build
 
@@ -44,3 +44,9 @@ install:
 
 clean:
 	rm -rf bin
+
+# release-snapshot builds a local, unpublished goreleaser release (real `go`,
+# no STET_PREBUILT_DIR) as a host-only sanity check. It is not part of
+# `check`; CI's release workflow is the source of truth for the real thing.
+release-snapshot:
+	goreleaser release --snapshot --clean --skip=publish

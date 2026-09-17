@@ -6,6 +6,8 @@
 # Binaries & build artifacts
 /bin/
 /stet
+/dist/
+/prebuilt/
 *.exe
 *.exe~
 *.dll
