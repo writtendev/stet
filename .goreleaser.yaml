@@ -32,10 +32,29 @@ builds:
     tool: '{{ if index .Env "STET_PREBUILT_DIR" }}./scripts/release/prebuilt-go{{ else }}go{{ end }}'
 
 archives:
-  - formats: [tar.gz]
+  # Split into a macOS-only id and a Linux-only id so `brews.ids` below can
+  # select just the macOS archives. Homebrew is macOS-only for this project
+  # (see README): the Linux binary has no rpath into the Linuxbrew prefix,
+  # so a formula built from both would install cleanly on Linux and then
+  # fail at exec once cmd/stet links libfido2. Both ids still produce
+  # tarballs for their own platforms and both are uploaded to the GitHub
+  # release as before; only the brew tap is restricted.
+  - id: stet-darwin
+    formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
+    format_overrides:
+      - goos: linux
+        formats: [none]
+  - id: stet-linux
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+    format_overrides:
+      - goos: darwin
+        formats: [none]
 
 checksum:
   name_template: checksums.txt
@@ -58,6 +77,8 @@ changelog:
 
 brews:
   - name: stet
+    ids:
+      - stet-darwin
     repository:
       owner: writtendev
       name: homebrew-tap
