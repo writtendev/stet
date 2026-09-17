@@ -45,8 +45,10 @@ install:
 clean:
 	rm -rf bin
 
-# release-snapshot builds a local, unpublished goreleaser release (real `go`,
-# no STET_PREBUILT_DIR) as a host-only sanity check. It is not part of
-# `check`; CI's release workflow is the source of truth for the real thing.
+# release-snapshot builds a single host-arch binary via goreleaser (real
+# `go`, no STET_PREBUILT_DIR) as a host-only sanity check of the goreleaser
+# build config. It does not exercise the multi-arch release job (archives,
+# checksums, GitHub release, Homebrew tap) — it is not part of `check`;
+# CI's release workflow is the source of truth for the real thing.
 release-snapshot:
-	goreleaser release --snapshot --clean --skip=publish
+	goreleaser build --single-target --snapshot --clean --id stet

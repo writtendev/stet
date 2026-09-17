@@ -12,8 +12,28 @@ concurrency:
   group: release-${{ github.ref }}
 
 jobs:
+  verify-tag:
+    name: Verify tag is on main
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require tagged commit to be an ancestor of origin/main
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tagged commit $GITHUB_SHA is not an ancestor of origin/main; refusing to release an unreviewed commit"
+            exit 1
+          fi
+
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: verify-tag
+    if: always() && (needs.verify-tag.result == 'success' || needs.verify-tag.result == 'skipped')
     strategy:
       fail-fast: true
       matrix:
