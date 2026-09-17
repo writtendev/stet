@@ -1,0 +1,39 @@
+Real positive packed-attestation fixtures
+==========================================
+
+yubikey_es256_*.{authdata.bin,attstmt.cbor,cdh.bin}
+  Source: duo-labs/py_webauthn (github.com/duo-labs/py_webauthn),
+  tests/test_verify_registration_response_packed.py,
+  test_verify_attestation_from_yubikey_firefox.
+  License: BSD-3-Clause, Copyright (c) 2017-2021 Duo Security, Inc.
+  A real "packed" WebAuthn registration captured from a physical YubiKey
+  (Firefox client). fmt=packed, alg=ES256 (-7), x5c chains to the bundled
+  "Yubico U2F Root CA Serial 457200631" root (roots/yubico-u2f-root.pem).
+  AAGUID 6d44ba9b-f6ec-2e49-b930-0c8fe920cb73 ("Security Key by Yubico with
+  NFC", confirmed against the FIDO MDS3 blob, see metadata/aaguids.json).
+  UP=1, UV=1 -> expected classification hardware+PIN (no fingerprint_internal
+  in this AAGUID's uv_methods).
+  RPID used at capture time: "localhost".
+
+yubikey_eddsa_*.{authdata.bin,attstmt.cbor,cdh.bin}
+  Source: duo-labs/py_webauthn, same file,
+  test_verify_attestation_with_okp_public_key.
+  License: BSD-3-Clause, Copyright (c) 2017-2021 Duo Security, Inc.
+  A second real physical-YubiKey "packed" registration (the credential's own
+  public key is Ed25519/OKP, but the attestation signature itself is
+  ES256 (-7) from the batch attestation certificate, as is normal for
+  packed attestation). x5c chains to the same bundled
+  "Yubico U2F Root CA Serial 457200631" root. AAGUID
+  c5ef55ff-ad9a-4b9f-b580-adebafe026d0 ("YubiKey 5 Series with Lightning").
+  UP=1, UV=0 -> expected classification hardware+touch.
+  RPID used at capture time: "localhost".
+
+Gaps (see NOTES in the PR description)
+  No real captured packed attestation could be located for Google Titan or
+  Feitian devices under a license permitting redistribution here. The
+  Google and Feitian roots in roots/ are still real, authoritatively
+  sourced and verified (see roots/manifest.json); only the *positive test
+  vector* is missing for those two vendors. Per STET-6's plan, this is
+  disclosed rather than fabricated. Titan/Feitian coverage in this package's
+  tests is via a synthetic test-only CA (never committed, never embedded),
+  which exercises the same code paths without claiming vendor authenticity.
