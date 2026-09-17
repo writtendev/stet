@@ -33,7 +33,10 @@ jobs:
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     needs: verify-tag
-    if: always() && (needs.verify-tag.result == 'success' || needs.verify-tag.result == 'skipped')
+    if: |
+      always() && !cancelled() &&
+      (needs.verify-tag.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && needs.verify-tag.result == 'skipped'))
     strategy:
       fail-fast: true
       matrix:
@@ -136,8 +139,14 @@ jobs:
 
   release:
     name: Release
-    needs: build
+    needs: [verify-tag, build]
+    if: |
+      always() && !cancelled() &&
+      (needs.verify-tag.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && needs.verify-tag.result == 'skipped')) &&
+      needs.build.result == 'success'
     runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'push' && 'release' || 'release-dry-run' }}
     permissions:
       contents: write
     steps:
