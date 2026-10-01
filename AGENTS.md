@@ -35,8 +35,7 @@ to stop and say which one is missing rather than guess.
 
 Expand `$HOME` to an absolute path before writing the worktrees value into
 a prompt or using it in a file operation; a shell expands it, but
-Read/Edit/Write calls and prompt placeholders do not. The pipeline keeps no
-run manifest: per-ticket state lives in Linear and on the PR.
+Read/Edit/Write calls and prompt placeholders do not.
 
 Statuses are Linear's stock ones — `Todo` -> `In Progress` -> `In Review` ->
 `Done` — with two workspace labels doing the rest: `approved-to-merge` on a
