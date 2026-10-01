@@ -1,4 +1,5 @@
-# Workspace & Dispatch
+# Local agent tooling: hand-made .agents/skills/ symlinks and Claude Code
+# subagent worktrees. Factory per-ticket worktrees live outside the repo.
 .agents/skills/
 .claude/worktrees/
 .claude/settings.local.json
